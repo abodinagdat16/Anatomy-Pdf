@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Centered document base (white) -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M34,26 C31.8,26 30,27.8 30,30 L30,78 C30,80.2 31.8,82 34,82 L74,82 C76.2,82 78,80.2 78,78 L78,42 L62,26 L34,26 Z" />
+    <!-- Folded corner in Google Blue tint -->
+    <path
+        android:fillColor="#D2E3FC"
+        android:pathData="M62,26 L78,42 L62,42 Z" />
+    <!-- Red medical cross & anatomical artery symbol inside document -->
+    <path
+        android:fillColor="#EA4335"
+        android:pathData="M51,46 L57,46 L57,51 L62,51 L62,57 L57,57 L57,62 L51,62 L51,57 L46,57 L46,51 L51,51 Z" />
+    <!-- Pulse rhythm wave in Google Blue & Red -->
+    <path
+        android:strokeColor="#1A73E8"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000"
+        android:pathData="M38,70 L46,70 L50,65 L54,75 L58,68 L62,70 L70,70" />
+    <!-- Sparkling Gemini star in gold/cyan at top right -->
+    <path
+        android:fillColor="#FBBC04"
+        android:pathData="M72,24 C72,28 76,30 76,30 C76,30 72,32 72,36 C72,32 68,30 68,30 C68,30 72,28 72,24 Z" />
+</vector>
+
