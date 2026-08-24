@@ -1,6 +1,10 @@
 package com.example.ui.viewer
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -8,21 +12,27 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -33,7 +43,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -41,6 +50,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudUpload
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.LocalHospital
@@ -83,17 +93,25 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.example.data.gemini.GeminiService
+import com.example.data.pdf.ExtractedPdfWord
 import com.example.data.pdf.PdfPageData
 import com.example.ui.components.AllImagesDialog
 import com.example.ui.components.ContextualSelectionMenu
@@ -413,6 +431,9 @@ fun PdfViewerScreen(
                             PdfPageListItem(
                                 page = pageData,
                                 onAnatomyClick = { term -> viewModel.openAnatomyDefinition(term) },
+                                onAskGemini = { term ->
+                                    viewModel.openGeminiWithContext("Explain high-yield anatomical relations, course, and USMLE facts regarding: $term")
+                                },
                                 onTextSelected = { selected, contextText ->
                                     viewModel.onTextSelected(selected, contextText)
                                 },
@@ -539,22 +560,30 @@ fun PdfViewerScreen(
 }
 
 /**
- * Individual Page Item in the Google Drive continuous PDF scroll list
+ * Individual Page Item with Direct On-PDF Text Selection & Double-Tap (Powered by PDFBox)
  */
 @Composable
 private fun PdfPageListItem(
     page: PdfPageData,
     onAnatomyClick: (String) -> Unit,
+    onAskGemini: (String) -> Unit,
     onTextSelected: (String, String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    var selectedWordIndices by remember { mutableStateOf<Set<Int>>(emptySet()) }
+    var activeSelectionText by remember { mutableStateOf("") }
+    var menuAnchorNormX by remember { mutableStateOf(0.5f) }
+    var menuAnchorNormY by remember { mutableStateOf(0.5f) }
+    var dragStartIndex by remember { mutableStateOf<Int?>(null) }
+
     Card(
         shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
         modifier = modifier.fillMaxWidth()
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.padding(12.dp)) {
             // Page Header Bar
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -562,7 +591,7 @@ private fun PdfPageListItem(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Surface(
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
                     shape = RoundedCornerShape(6.dp)
                 ) {
                     Text(
@@ -575,7 +604,7 @@ private fun PdfPageListItem(
                 }
 
                 Text(
-                    text = "Double tap / select text to inspect",
+                    text = "Tap or double-tap words directly on PDF",
                     fontSize = 10.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                 )
@@ -583,66 +612,302 @@ private fun PdfPageListItem(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Rendered PDF Page Bitmap
-            if (page.bitmap != null) {
-                Image(
-                    bitmap = page.bitmap.asImageBitmap(),
-                    contentDescription = "PDF Page ${page.pageIndex + 1}",
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(4.dp))
-                )
-                Spacer(modifier = Modifier.height(14.dp))
-                Divider(color = Color(0xFFEEEEEE))
-                Spacer(modifier = Modifier.height(10.dp))
-            }
+            // Main Interactive PDF Page Canvas with direct in-PDF text selection
+            BoxWithConstraints(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(Color.White)
+            ) {
+                val boxWidthPx = constraints.maxWidth.toFloat()
+                val aspectRatio = if (page.bitmap != null && page.bitmap.width > 0) {
+                    page.bitmap.width.toFloat() / page.bitmap.height.toFloat()
+                } else {
+                    595f / 842f
+                }
+                val boxHeightPx = boxWidthPx / aspectRatio
 
-            // Key Terms Tag Cloud for quick 1-tap anatomy lookup
-            if (page.keyTerms.isNotEmpty()) {
-                val scrollState = rememberScrollState()
-                Row(
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .horizontalScroll(scrollState)
-                        .padding(bottom = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .aspectRatio(aspectRatio)
                 ) {
-                    Text(
-                        text = "High-Yield:",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = GoogleBlue
-                    )
-                    page.keyTerms.forEach { term ->
-                        Surface(
-                            color = GoogleBlueLight,
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(12.dp))
-                                .clickable { onAnatomyClick(term) }
-                        ) {
-                            Text(
-                                text = "⚡ $term",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = GoogleBlue,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    // 1. Rendered High-Resolution PDF Page Image
+                    if (page.bitmap != null) {
+                        Image(
+                            bitmap = page.bitmap.asImageBitmap(),
+                            contentDescription = "PDF Page ${page.pageIndex + 1}",
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+
+                    // 2. Direct Selection Highlight Canvas overlay directly on top of PDF
+                    Canvas(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .pointerInput(page.words) {
+                                detectTapGestures(
+                                    onTap = { offset ->
+                                        val normX = offset.x / size.width
+                                        val normY = offset.y / size.height
+                                        val clickedWordIdx = page.words.indexOfFirst { w ->
+                                            normX >= (w.normLeft - 0.015f) && normX <= (w.normRight + 0.015f) &&
+                                                    normY >= (w.normTop - 0.015f) && normY <= (w.normBottom + 0.015f)
+                                        }
+
+                                        if (clickedWordIdx != -1) {
+                                            val w = page.words[clickedWordIdx]
+                                            selectedWordIndices = setOf(clickedWordIdx)
+                                            activeSelectionText = w.text
+                                            menuAnchorNormX = (w.normLeft + w.normRight) / 2f
+                                            menuAnchorNormY = w.normTop
+                                            onTextSelected(w.text, page.text)
+                                        } else {
+                                            selectedWordIndices = emptySet()
+                                            activeSelectionText = ""
+                                        }
+                                    },
+                                    onDoubleTap = { offset ->
+                                        val normX = offset.x / size.width
+                                        val normY = offset.y / size.height
+                                        val clickedWordIdx = page.words.indexOfFirst { w ->
+                                            normX >= (w.normLeft - 0.025f) && normX <= (w.normRight + 0.025f) &&
+                                                    normY >= (w.normTop - 0.025f) && normY <= (w.normBottom + 0.025f)
+                                        }
+
+                                        if (clickedWordIdx != -1) {
+                                            val w = page.words[clickedWordIdx]
+                                            val start = maxOf(0, clickedWordIdx - 1)
+                                            val end = minOf(page.words.size - 1, clickedWordIdx + 1)
+                                            val combinedPhrase = (start..end).joinToString(" ") { page.words[it].text }
+
+                                            val isCompoundAnatomy = combinedPhrase.contains("Artery", true) ||
+                                                    combinedPhrase.contains("Nerve", true) ||
+                                                    combinedPhrase.contains("Vein", true) ||
+                                                    combinedPhrase.contains("Triangle", true) ||
+                                                    combinedPhrase.contains("Carotid", true) ||
+                                                    combinedPhrase.contains("Sheath", true)
+
+                                            val selected = if (isCompoundAnatomy) {
+                                                selectedWordIndices = (start..end).toSet()
+                                                menuAnchorNormX = (page.words[start].normLeft + page.words[end].normRight) / 2f
+                                                menuAnchorNormY = page.words[start].normTop
+                                                combinedPhrase
+                                            } else {
+                                                selectedWordIndices = setOf(clickedWordIdx)
+                                                menuAnchorNormX = (w.normLeft + w.normRight) / 2f
+                                                menuAnchorNormY = w.normTop
+                                                w.text
+                                            }
+
+                                            activeSelectionText = selected
+                                            onTextSelected(selected, page.text)
+                                        }
+                                    }
+                                )
+                            }
+                            .pointerInput(page.words) {
+                                detectDragGestures(
+                                    onDragStart = { offset ->
+                                        val normX = offset.x / size.width
+                                        val normY = offset.y / size.height
+                                        val foundIdx = page.words.indexOfFirst { w ->
+                                            normX >= (w.normLeft - 0.02f) && normX <= (w.normRight + 0.02f) &&
+                                                    normY >= (w.normTop - 0.02f) && normY <= (w.normBottom + 0.02f)
+                                        }
+                                        dragStartIndex = if (foundIdx != -1) foundIdx else null
+                                        if (foundIdx != -1) {
+                                            selectedWordIndices = setOf(foundIdx)
+                                        }
+                                    },
+                                    onDrag = { change, _ ->
+                                        val startIdx = dragStartIndex
+                                        if (startIdx != null) {
+                                            val normX = change.position.x / size.width
+                                            val normY = change.position.y / size.height
+                                            val currentIdx = page.words.indexOfFirst { w ->
+                                                normX >= (w.normLeft - 0.03f) && normX <= (w.normRight + 0.03f) &&
+                                                        normY >= (w.normTop - 0.03f) && normY <= (w.normBottom + 0.03f)
+                                            }
+                                            if (currentIdx != -1) {
+                                                val minIdx = minOf(startIdx, currentIdx)
+                                                val maxIdx = maxOf(startIdx, currentIdx)
+                                                selectedWordIndices = (minIdx..maxIdx).toSet()
+                                            }
+                                        }
+                                    },
+                                    onDragEnd = {
+                                        if (selectedWordIndices.isNotEmpty()) {
+                                            val sorted = selectedWordIndices.sorted()
+                                            val text = sorted.joinToString(" ") { page.words[it].text }
+                                            activeSelectionText = text
+                                            val first = page.words[sorted.first()]
+                                            val last = page.words[sorted.last()]
+                                            menuAnchorNormX = ((first.normLeft + last.normRight) / 2f).coerceIn(0.1f, 0.9f)
+                                            menuAnchorNormY = first.normTop
+                                            onTextSelected(text, page.text)
+                                        }
+                                        dragStartIndex = null
+                                    },
+                                    onDragCancel = {
+                                        dragStartIndex = null
+                                    }
+                                )
+                            }
+                    ) {
+                        val canvasWidth = size.width
+                        val canvasHeight = size.height
+
+                        // Draw selection highlights directly over selected words on the PDF
+                        selectedWordIndices.forEach { idx ->
+                            val word = page.words.getOrNull(idx) ?: return@forEach
+                            val left = word.normLeft * canvasWidth
+                            val top = word.normTop * canvasHeight
+                            val right = word.normRight * canvasWidth
+                            val bottom = word.normBottom * canvasHeight
+                            val width = (right - left).coerceAtLeast(10f)
+                            val height = (bottom - top).coerceAtLeast(12f)
+
+                            drawRoundRect(
+                                color = Color(0x551A73E8),
+                                topLeft = Offset(left, top),
+                                size = Size(width, height),
+                                cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx())
+                            )
+                            drawRoundRect(
+                                color = Color(0xFF1A73E8),
+                                topLeft = Offset(left, top),
+                                size = Size(width, height),
+                                cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx()),
+                                style = Stroke(width = 1.5.dp.toPx())
                             )
                         }
                     }
-                }
-            }
 
-            // Selectable Medical Text Section with flawless text selection
-            SelectionContainer {
-                Text(
-                    text = page.text,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = Color(0xFF202124),
-                    lineHeight = 22.sp,
-                    modifier = Modifier.fillMaxWidth()
-                )
+                    // 3. Floating In-PDF Action Toolbar anchored directly above the selected text
+                    if (selectedWordIndices.isNotEmpty() && activeSelectionText.isNotBlank()) {
+                        val density = LocalDensity.current
+                        val menuX = (menuAnchorNormX * boxWidthPx).coerceIn(110f, boxWidthPx - 110f)
+                        val menuY = ((menuAnchorNormY * boxHeightPx) - with(density) { 48.dp.toPx() }).coerceAtLeast(6f)
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 6.dp)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(24.dp),
+                                color = Color(0xFF202124),
+                                shadowElevation = 8.dp,
+                                modifier = Modifier
+                                    .align(Alignment.TopStart)
+                                    .offset {
+                                        IntOffset(
+                                            (menuX - with(density) { 100.dp.toPx() }).toInt(),
+                                            menuY.toInt()
+                                        )
+                                    }
+                                    .zIndex(15f)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    // Ask Gemini Button
+                                    Surface(
+                                        color = Color(0xFF333537),
+                                        shape = RoundedCornerShape(16.dp),
+                                        modifier = Modifier.clickable {
+                                            onAskGemini(activeSelectionText)
+                                        }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.AutoAwesome,
+                                                contentDescription = "Ask Gemini",
+                                                tint = Color(0xFF8AB4F8),
+                                                modifier = Modifier.size(13.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(3.dp))
+                                            Text(
+                                                text = "Gemini",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color.White
+                                            )
+                                        }
+                                    }
+
+                                    // Anatomy Lookup Button
+                                    Surface(
+                                        color = Color(0xFF333537),
+                                        shape = RoundedCornerShape(16.dp),
+                                        modifier = Modifier.clickable {
+                                            onAnatomyClick(activeSelectionText)
+                                        }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.LocalHospital,
+                                                contentDescription = "Anatomy Lookup",
+                                                tint = Color(0xFF81C995),
+                                                modifier = Modifier.size(13.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(3.dp))
+                                            Text(
+                                                text = "Anatomy",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color.White
+                                            )
+                                        }
+                                    }
+
+                                    // Copy Button
+                                    IconButton(
+                                        onClick = {
+                                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                            val clip = ClipData.newPlainText("Selected Text", activeSelectionText)
+                                            clipboard.setPrimaryClip(clip)
+                                            Toast.makeText(context, "Copied: \"$activeSelectionText\"", Toast.LENGTH_SHORT).show()
+                                        },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.ContentCopy,
+                                            contentDescription = "Copy",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+
+                                    // Clear Button
+                                    IconButton(
+                                        onClick = {
+                                            selectedWordIndices = emptySet()
+                                            activeSelectionText = ""
+                                        },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Close,
+                                            contentDescription = "Clear",
+                                            tint = Color.LightGray,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }

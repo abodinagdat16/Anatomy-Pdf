@@ -393,9 +393,33 @@ object PdfDocumentManager {
         val count = if (total > 0) total else item.pageCount
         val result = mutableListOf<PdfPageData>()
 
+        // Extract text & word positions using PDFBox
+        var extractedPages: List<ExtractedPageResult> = emptyList()
+        try {
+            if (item.uri != null) {
+                context.contentResolver.openInputStream(item.uri)?.use { stream ->
+                    extractedPages = PdfBoxHelper.extractAllPagesFromStream(context, stream)
+                }
+            } else {
+                val file = File(context.filesDir, "${item.id}.pdf")
+                if (file.exists()) {
+                    extractedPages = PdfBoxHelper.extractAllPages(context, file)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error extracting pages with PDFBox", e)
+        }
+
         for (i in 0 until count) {
             val bitmap = renderPage(i)
-            val text = getPageText(item.id, i)
+            val pdfBoxPage = extractedPages.getOrNull(i)
+            val fallbackText = getPageText(item.id, i)
+            val text = if (!pdfBoxPage?.fullText.isNullOrBlank()) pdfBoxPage!!.fullText else fallbackText
+            val words = if (!pdfBoxPage?.words.isNullOrEmpty()) {
+                pdfBoxPage!!.words
+            } else {
+                PdfBoxHelper.createFallbackWordBoxes(text, i)
+            }
             val keyTerms = extractKeyTermsFromPage(item.id, i, text)
             result.add(
                 PdfPageData(
@@ -403,6 +427,7 @@ object PdfDocumentManager {
                     totalPages = count,
                     bitmap = bitmap,
                     text = text,
+                    words = words,
                     keyTerms = keyTerms
                 )
             )

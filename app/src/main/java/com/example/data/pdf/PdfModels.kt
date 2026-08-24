@@ -18,6 +18,7 @@ data class PdfPageData(
     val totalPages: Int = 1,
     val bitmap: Bitmap? = null,
     val text: String = "",
+    val words: List<ExtractedPdfWord> = emptyList(),
     val keyTerms: List<String> = emptyList()
 )
 
@@ -27,4 +28,12 @@ data class TextSelectionState(
     val positionX: Float = 0f,
     val positionY: Float = 0f,
     val isVisible: Boolean = false
+)
+
+data class PdfActiveSelection(
+    val text: String,
+    val pageIndex: Int,
+    val selectedWordIndices: Set<Int>,
+    val menuAnchorX: Float = 0.5f,
+    val menuAnchorY: Float = 0.5f
 )
