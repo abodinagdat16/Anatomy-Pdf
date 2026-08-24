@@ -76,6 +76,11 @@ import com.example.ui.theme.GeminiSparkle
 import com.example.ui.theme.GoogleBlue
 import com.example.ui.theme.GoogleBlueLight
 
+import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.Settings
+import com.example.data.gemini.GeminiService
+import androidx.compose.ui.platform.LocalContext
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GeminiChatDrawer(
@@ -86,10 +91,12 @@ fun GeminiChatDrawer(
     onInputChange: (String) -> Unit,
     onSendMessage: (String?) -> Unit,
     onClose: () -> Unit,
+    onOpenApiKeySettings: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val listState = rememberLazyListState()
     val keyboardController = LocalSoftwareKeyboardController.current
+    val context = LocalContext.current
 
     LaunchedEffect(messages.size, isThinking) {
         if (messages.isNotEmpty()) {
@@ -126,7 +133,10 @@ fun GeminiChatDrawer(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
                         Box(
                             modifier = Modifier
                                 .size(32.dp)
@@ -155,11 +165,61 @@ fun GeminiChatDrawer(
                         }
                     }
 
-                    IconButton(onClick = onClose) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Close Gemini Drawer",
-                            tint = Color.White
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (onOpenApiKeySettings != null) {
+                            IconButton(onClick = onOpenApiKeySettings) {
+                                Icon(
+                                    imageVector = Icons.Default.Key,
+                                    contentDescription = "API Key Settings",
+                                    tint = Color.White
+                                )
+                            }
+                        }
+                        IconButton(onClick = onClose) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Close Gemini Drawer",
+                                tint = Color.White
+                            )
+                        }
+                    }
+                }
+            }
+
+            // API Key Status Sub-header if missing
+            val hasKey = GeminiService.getActiveApiKey(context).isNotBlank()
+            if (!hasKey && onOpenApiKeySettings != null) {
+                Surface(
+                    color = Color(0xFFFFF0EB),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onOpenApiKeySettings() }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Key,
+                                contentDescription = null,
+                                tint = Color(0xFFD93025),
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "API Key needed for Gemini AI",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFD93025)
+                            )
+                        }
+                        Text(
+                            text = "Set Key ⚙️",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = GoogleBlue
                         )
                     }
                 }

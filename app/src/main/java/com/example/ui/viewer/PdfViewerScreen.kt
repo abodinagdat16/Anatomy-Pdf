@@ -1,6 +1,5 @@
 package com.example.ui.viewer
 
-import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -13,44 +12,43 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.LocalHospital
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material3.Badge
-import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -58,10 +56,10 @@ import androidx.compose.material3.Divider
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
@@ -74,37 +72,43 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
-import com.example.data.pdf.PdfDocumentItem
+import com.example.data.gemini.GeminiService
+import com.example.data.pdf.PdfPageData
 import com.example.ui.components.AllImagesDialog
 import com.example.ui.components.ContextualSelectionMenu
+import com.example.ui.components.GeminiApiKeyDialog
 import com.example.ui.components.ImageZoomDialog
 import com.example.ui.drawers.AnatomyDetailDrawer
 import com.example.ui.drawers.GeminiChatDrawer
 import com.example.ui.theme.GeminiSparkle
 import com.example.ui.theme.GoogleBlue
 import com.example.ui.theme.GoogleBlueLight
+import com.example.ui.theme.GoogleGreen
 import com.example.ui.theme.GoogleRed
 import com.example.viewmodel.AnatomyPdfViewModel
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -115,6 +119,8 @@ fun PdfViewerScreen(
     val state by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val listState = rememberLazyListState()
 
     var showLectureMenu by remember { mutableStateOf(false) }
 
@@ -135,12 +141,21 @@ fun PdfViewerScreen(
         }
     }
 
+    // Track visible page index as user scrolls continuous Google Drive style list
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.firstVisibleItemIndex }
+            .distinctUntilChanged()
+            .collect { index ->
+                viewModel.onVisiblePageChanged(index)
+            }
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
             snackbarHost = { SnackbarHost(snackbarHostState) },
             topBar = {
                 Column {
-                    // Google Apps styled Top Bar
+                    // Google Workspace Styled Medical TopAppBar
                     TopAppBar(
                         title = {
                             Column(
@@ -164,7 +179,7 @@ fun PdfViewerScreen(
                                     )
                                 }
                                 Text(
-                                    text = "${state.currentDocument.topicTag} • Page ${state.currentPageIndex + 1} of ${state.totalPages}",
+                                    text = "${state.currentDocument.topicTag} • ${state.totalPages} Pages (Continuous List)",
                                     fontSize = 11.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -180,6 +195,27 @@ fun PdfViewerScreen(
                             }
                         },
                         actions = {
+                            // Gemini API Key Settings
+                            IconButton(onClick = { viewModel.openApiKeyDialog() }) {
+                                val hasKey = GeminiService.getActiveApiKey(context).isNotBlank()
+                                Box {
+                                    Icon(
+                                        imageVector = Icons.Default.Key,
+                                        contentDescription = "Gemini API Key Settings",
+                                        tint = if (hasKey) GoogleBlue else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    if (hasKey) {
+                                        Surface(
+                                            shape = CircleShape,
+                                            color = GoogleGreen,
+                                            modifier = Modifier
+                                                .size(6.dp)
+                                                .align(Alignment.TopEnd)
+                                        ) {}
+                                    }
+                                }
+                            }
+
                             // Search in PDF
                             IconButton(onClick = {
                                 if (state.isSearchActive) viewModel.clearSearch()
@@ -283,8 +319,15 @@ fun PdfViewerScreen(
                             DropdownMenuItem(
                                 text = {
                                     Column {
-                                        Text(doc.title, fontWeight = if (doc.id == state.currentDocument.id) FontWeight.Bold else FontWeight.Normal)
-                                        Text(doc.subtitle, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(
+                                            text = doc.title,
+                                            fontWeight = if (doc.id == state.currentDocument.id) FontWeight.Bold else FontWeight.Normal
+                                        )
+                                        Text(
+                                            text = doc.subtitle,
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
                                     }
                                 },
                                 onClick = {
@@ -309,135 +352,96 @@ fun PdfViewerScreen(
                                 pdfPickerLauncher.launch(arrayOf("application/pdf"))
                             }
                         )
-                    }
-                }
-            },
-            bottomBar = {
-                // Bottom Page Scrubber & Navigation Bar
-                Surface(
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 6.dp,
-                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 8.dp)
-                    ) {
-                        // Quick Anatomical Structure Chips Row
-                        val quickAnatomyTerms = listOf(
-                            "Common Carotid Artery",
-                            "Carotid Sheath",
-                            "Carotid Triangle",
-                            "External Carotid Artery",
-                            "Internal Carotid Artery",
-                            "Vagus Nerve",
-                            "Circle of Willis"
-                        )
-                        val chipScrollState = rememberScrollState()
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(chipScrollState)
-                                .padding(bottom = 6.dp),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "Quick Atlas:",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            quickAnatomyTerms.forEach { term ->
-                                Surface(
-                                    shape = RoundedCornerShape(14.dp),
-                                    color = if (state.selectedStructure?.name?.contains(term, ignoreCase = true) == true) GoogleBlueLight else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, if (state.selectedStructure?.name?.contains(term, ignoreCase = true) == true) GoogleBlue else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)),
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(14.dp))
-                                        .clickable { viewModel.openAnatomyDefinition(term) }
-                                ) {
-                                    Text(
-                                        text = term,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = if (state.selectedStructure?.name?.contains(term, ignoreCase = true) == true) GoogleBlue else MaterialTheme.colorScheme.onSurface,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                    )
+
+                        DropdownMenuItem(
+                            text = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Key, contentDescription = null, tint = GeminiSparkle)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Gemini API Key Settings", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Medium)
                                 }
+                            },
+                            onClick = {
+                                showLectureMenu = false
+                                viewModel.openApiKeyDialog()
                             }
-                        }
-
-                        // Page navigation buttons & indicator
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            IconButton(
-                                onClick = { viewModel.previousPage() },
-                                enabled = state.currentPageIndex > 0
-                            ) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                    contentDescription = "Previous Page",
-                                    tint = if (state.currentPageIndex > 0) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
-                                )
-                            }
-
-                            Surface(
-                                shape = RoundedCornerShape(16.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
-                            ) {
-                                Text(
-                                    text = "Page ${state.currentPageIndex + 1} of ${state.totalPages}",
-                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
-                                )
-                            }
-
-                            IconButton(
-                                onClick = { viewModel.nextPage() },
-                                enabled = state.currentPageIndex < state.totalPages - 1
-                            ) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.ArrowForward,
-                                    contentDescription = "Next Page",
-                                    tint = if (state.currentPageIndex < state.totalPages - 1) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
-                                )
-                            }
-                        }
+                        )
                     }
                 }
             }
         ) { paddingValues ->
-            // MAIN PDF CANVAS & INTERACTIVE VIEWPORT
+            // MAIN CONTINUOUS PDF LIST VIEW (Like Google Drive PDF Viewer)
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues)
                     .background(Color(0xFFE8EAED)),
-                contentAlignment = Alignment.Center
+                contentAlignment = Alignment.TopCenter
             ) {
-                if (state.isLoadingPage) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                if (state.isLoadingDocument) {
+                    Column(
+                        modifier = Modifier.align(Alignment.Center),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
                         CircularProgressIndicator(color = GoogleBlue)
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
-                            text = "Rendering High-Resolution PDF...",
+                            text = "Loading Continuous PDF Pages...",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 } else {
-                    PdfPageCanvas(
-                        state = state,
-                        onAnatomyClick = { term -> viewModel.onTextSelected(term) },
-                        onTextSelection = { selected, context -> viewModel.onTextSelected(selected, context) },
-                        modifier = Modifier.fillMaxSize()
-                    )
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(top = 16.dp, bottom = 96.dp, start = 12.dp, end = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        itemsIndexed(
+                            items = if (state.pages.isNotEmpty()) state.pages else listOf(
+                                PdfPageData(
+                                    pageIndex = 0,
+                                    totalPages = 1,
+                                    bitmap = state.currentPageBitmap,
+                                    text = state.currentPageText
+                                )
+                            ),
+                            key = { index, page -> "${state.currentDocument.id}_page_$index" }
+                        ) { pageIndex, pageData ->
+                            PdfPageListItem(
+                                page = pageData,
+                                onAnatomyClick = { term -> viewModel.openAnatomyDefinition(term) },
+                                onTextSelected = { selected, contextText ->
+                                    viewModel.onTextSelected(selected, contextText)
+                                },
+                                modifier = Modifier.widthIn(max = 680.dp)
+                            )
+                        }
+                    }
+
+                    // Google Drive Style Floating Page Indicator Badge
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = Color(0xDD202124),
+                        shadowElevation = 6.dp,
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 16.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Page ${state.currentPageIndex + 1} / ${state.totalPages}",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+                    }
                 }
 
                 // Floating Contextual Action Menu when text is selected / tapped
@@ -447,13 +451,15 @@ fun PdfViewerScreen(
                     exit = fadeOut(),
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
-                        .padding(bottom = 24.dp)
+                        .padding(bottom = 54.dp)
                         .zIndex(20f)
                 ) {
                     ContextualSelectionMenu(
                         selectedText = state.selectedText,
                         onQuickDefinition = { term -> viewModel.openAnatomyDefinition(term) },
-                        onAskGemini = { term -> viewModel.openGeminiWithContext("Explain high-yield clinical anatomy regarding: $term") },
+                        onAskGemini = { term ->
+                            viewModel.openGeminiWithContext("Explain high-yield anatomical relations, course, and USMLE facts regarding: $term")
+                        },
                         onSearchInDoc = { term -> viewModel.setSearchQuery(term) },
                         onDismiss = { viewModel.dismissSelectionPopup() }
                     )
@@ -477,7 +483,8 @@ fun PdfViewerScreen(
                 activeContextText = state.activeGeminiContextText,
                 onInputChange = { viewModel.updateGeminiInput(it) },
                 onSendMessage = { prompt -> viewModel.sendMessageToGemini(prompt) },
-                onClose = { viewModel.closeLeftDrawer() }
+                onClose = { viewModel.closeLeftDrawer() },
+                onOpenApiKeySettings = { viewModel.openApiKeyDialog() }
             )
         }
 
@@ -521,147 +528,121 @@ fun PdfViewerScreen(
                 onDismiss = { viewModel.closeAllImagesModal() }
             )
         }
+
+        // Gemini API Key Settings Dialog
+        GeminiApiKeyDialog(
+            isOpen = state.isApiKeyDialogOpen,
+            onDismiss = { viewModel.closeApiKeyDialog() },
+            onKeySaved = { key -> viewModel.onApiKeySaved(key) }
+        )
     }
 }
 
 /**
- * Interactive PDF Page Viewport with Pinch-to-Zoom, Pan, and clickable anatomical terms overlay
+ * Individual Page Item in the Google Drive continuous PDF scroll list
  */
 @Composable
-private fun PdfPageCanvas(
-    state: com.example.viewmodel.UiState,
+private fun PdfPageListItem(
+    page: PdfPageData,
     onAnatomyClick: (String) -> Unit,
-    onTextSelection: (String, String) -> Unit,
+    onTextSelected: (String, String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var scale by remember { mutableFloatStateOf(1f) }
-    var offset by remember { mutableStateOf(Offset.Zero) }
-
-    val pageScrollState = rememberScrollState()
-
-    Box(
-        modifier = modifier
-            .pointerInput(Unit) {
-                detectTransformGestures { _, pan, zoom, _ ->
-                    scale = (scale * zoom).coerceIn(1f, 3.5f)
-                    val extraWidth = (size.width * (scale - 1)) / 2
-                    val extraHeight = (size.height * (scale - 1)) / 2
-                    offset = Offset(
-                        x = (offset.x + pan.x).coerceIn(-extraWidth, extraWidth),
-                        y = (offset.y + pan.y).coerceIn(-extraHeight, extraHeight)
+    Card(
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            // Page Header Bar
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                    shape = RoundedCornerShape(6.dp)
+                ) {
+                    Text(
+                        text = "Page ${page.pageIndex + 1} of ${page.totalPages}",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                     )
                 }
-            },
-        contentAlignment = Alignment.TopCenter
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(pageScrollState)
-                .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            // PDF Page Sheet Container
-            Card(
-                shape = RoundedCornerShape(8.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                modifier = Modifier
-                    .widthIn(max = 680.dp)
-                    .fillMaxWidth()
-                    .shadow(8.dp)
-                    .graphicsLayer(
-                        scaleX = scale,
-                        scaleY = scale,
-                        translationX = offset.x,
-                        translationY = offset.y
+
+                Text(
+                    text = "Double tap / select text to inspect",
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Rendered PDF Page Bitmap
+            if (page.bitmap != null) {
+                Image(
+                    bitmap = page.bitmap.asImageBitmap(),
+                    contentDescription = "PDF Page ${page.pageIndex + 1}",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(4.dp))
+                )
+                Spacer(modifier = Modifier.height(14.dp))
+                Divider(color = Color(0xFFEEEEEE))
+                Spacer(modifier = Modifier.height(10.dp))
+            }
+
+            // Key Terms Tag Cloud for quick 1-tap anatomy lookup
+            if (page.keyTerms.isNotEmpty()) {
+                val scrollState = rememberScrollState()
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(scrollState)
+                        .padding(bottom = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "High-Yield:",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = GoogleBlue
                     )
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    // Rendered PDF Bitmap if available
-                    if (state.currentPageBitmap != null) {
-                        Image(
-                            bitmap = state.currentPageBitmap.asImageBitmap(),
-                            contentDescription = "PDF Page ${state.currentPageIndex + 1}",
+                    page.keyTerms.forEach { term ->
+                        Surface(
+                            color = GoogleBlueLight,
+                            shape = RoundedCornerShape(12.dp),
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(4.dp))
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Divider(color = Color(0xFFE0E0E0))
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // Interactive Selectable Medical Text Section
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(bottom = 6.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Visibility,
-                            contentDescription = null,
-                            tint = GoogleBlue,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "Interactive Lecture Reader (Tap any term or highlight text below):",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = GoogleBlue
-                        )
-                    }
-
-                    // Interactive Term Fast Links for Lecture
-                    val keyTerms = listOf(
-                        "Common Carotid Artery",
-                        "Carotid Sheath",
-                        "Carotid Triangle",
-                        "Internal Carotid Artery",
-                        "External Carotid Artery",
-                        "Internal Jugular Vein",
-                        "Vagus Nerve",
-                        "Circle of Willis"
-                    )
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        keyTerms.take(4).forEach { term ->
-                            Surface(
-                                color = GoogleBlueLight,
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .clickable { onAnatomyClick(term) }
-                            ) {
-                                Text(
-                                    text = "📌 $term",
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = GoogleBlue,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
-                                )
-                            }
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable { onAnatomyClick(term) }
+                        ) {
+                            Text(
+                                text = "⚡ $term",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = GoogleBlue,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
                         }
                     }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Selectable Text Container
-                    SelectionContainer {
-                        Text(
-                            text = state.currentPageText,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Color(0xFF202124),
-                            lineHeight = 22.sp,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
                 }
+            }
+
+            // Selectable Medical Text Section with flawless text selection
+            SelectionContainer {
+                Text(
+                    text = page.text,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color(0xFF202124),
+                    lineHeight = 22.sp,
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         }
     }

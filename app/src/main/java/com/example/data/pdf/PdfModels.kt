@@ -15,8 +15,9 @@ data class PdfDocumentItem(
 
 data class PdfPageData(
     val pageIndex: Int,
-    val bitmap: Bitmap?,
-    val extractedText: String,
+    val totalPages: Int = 1,
+    val bitmap: Bitmap? = null,
+    val text: String = "",
     val keyTerms: List<String> = emptyList()
 )
 

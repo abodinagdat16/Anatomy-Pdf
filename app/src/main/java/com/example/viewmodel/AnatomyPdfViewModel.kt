@@ -13,6 +13,7 @@ import com.example.data.gemini.ChatMessage
 import com.example.data.gemini.GeminiService
 import com.example.data.pdf.PdfDocumentItem
 import com.example.data.pdf.PdfDocumentManager
+import com.example.data.pdf.PdfPageData
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -23,8 +24,10 @@ data class UiState(
     val currentDocument: PdfDocumentItem = PdfDocumentManager.sampleLectures[0],
     val currentPageIndex: Int = 0,
     val totalPages: Int = 3,
+    val pages: List<PdfPageData> = emptyList(),
     val currentPageBitmap: Bitmap? = null,
     val currentPageText: String = "",
+    val isLoadingDocument: Boolean = false,
     val isLoadingPage: Boolean = false,
     val allLectures: List<PdfDocumentItem> = PdfDocumentManager.sampleLectures,
     
@@ -37,6 +40,10 @@ data class UiState(
     val selectedText: String = "",
     val isSelectionPopupVisible: Boolean = false,
     val selectionContextSentence: String = "",
+
+    // Gemini API Key Dialog
+    val isApiKeyDialogOpen: Boolean = false,
+    val customApiKey: String = "",
 
     // Right Drawer: Anatomy Quick Definition & Relations Atlas
     val isRightDrawerOpen: Boolean = false,
@@ -65,6 +72,8 @@ class AnatomyPdfViewModel(application: Application) : AndroidViewModel(applicati
     init {
         viewModelScope.launch {
             PdfDocumentManager.ensurePresetPdfFiles(getApplication())
+            val savedKey = GeminiService.getSavedCustomApiKey(getApplication())
+            _uiState.update { it.copy(customApiKey = savedKey) }
             loadDocument(PdfDocumentManager.sampleLectures[0])
             initializeGeminiWelcome()
         }
@@ -73,7 +82,7 @@ class AnatomyPdfViewModel(application: Application) : AndroidViewModel(applicati
     private fun initializeGeminiWelcome() {
         val welcomeMsg = ChatMessage(
             isUser = false,
-            text = "👋 Welcome to your Medical Anatomy Assistant! I'm powered by Gemini.\n\nHighlight or tap any anatomical term in your PDF (like **Common Carotid Artery**, **Carotid Sheath**, **Circle of Willis**) to ask for mnemonics, clinical correlations, relations, or board exam reviews.",
+            text = "👋 Welcome to your Medical Anatomy Assistant! I'm powered by Gemini.\n\nHighlight or tap any anatomical term in your PDF (like **Common Carotid Artery**, **Carotid Sheath**, **Circle of Willis**) to ask for mnemonics, clinical correlations, relations, or board exam reviews.\n\n💡 You can also configure your own Gemini API key anytime using the key icon.",
             suggestedQuestions = listOf(
                 "High-yield mnemonics for Carotid Branches",
                 "Clinical relations inside the Carotid Sheath",
@@ -86,11 +95,54 @@ class AnatomyPdfViewModel(application: Application) : AndroidViewModel(applicati
 
     fun loadDocument(item: PdfDocumentItem) {
         viewModelScope.launch {
-            _uiState.update { it.copy(currentDocument = item, currentPageIndex = 0, isLoadingPage = true) }
-            val pageCount = PdfDocumentManager.openPdf(getApplication(), item)
-            _uiState.update { it.copy(totalPages = if (pageCount > 0) pageCount else item.pageCount) }
-            loadPage(0)
+            _uiState.update {
+                it.copy(
+                    currentDocument = item,
+                    currentPageIndex = 0,
+                    isLoadingDocument = true,
+                    isSelectionPopupVisible = false
+                )
+            }
+            val loadedPages = PdfDocumentManager.loadAllDocumentPages(getApplication(), item)
+            val firstPage = loadedPages.firstOrNull()
+
+            _uiState.update {
+                it.copy(
+                    pages = loadedPages,
+                    totalPages = if (loadedPages.isNotEmpty()) loadedPages.size else item.pageCount,
+                    currentPageIndex = 0,
+                    currentPageBitmap = firstPage?.bitmap,
+                    currentPageText = firstPage?.text ?: "",
+                    isLoadingDocument = false
+                )
+            }
         }
+    }
+
+    fun onVisiblePageChanged(pageIndex: Int) {
+        if (pageIndex in _uiState.value.pages.indices) {
+            val page = _uiState.value.pages[pageIndex]
+            _uiState.update {
+                it.copy(
+                    currentPageIndex = pageIndex,
+                    currentPageBitmap = page.bitmap,
+                    currentPageText = page.text
+                )
+            }
+        }
+    }
+
+    fun openApiKeyDialog() {
+        _uiState.update { it.copy(isApiKeyDialogOpen = true) }
+    }
+
+    fun closeApiKeyDialog() {
+        _uiState.update { it.copy(isApiKeyDialogOpen = false) }
+    }
+
+    fun onApiKeySaved(key: String) {
+        _uiState.update { it.copy(customApiKey = key, isApiKeyDialogOpen = false) }
+        showSnackbar("Gemini API key saved successfully!")
     }
 
     fun loadFromUri(uri: Uri, fileName: String? = null) {
@@ -189,7 +241,7 @@ class AnatomyPdfViewModel(application: Application) : AndroidViewModel(applicati
                 }
             } else {
                 // 2. Generate dynamic anatomy card using Gemini AI
-                val dynamic = GeminiService.generateAnatomyCard(query)
+                val dynamic = GeminiService.generateAnatomyCard(query, getApplication())
                 if (dynamic != null) {
                     AnatomyRepository.saveDynamicStructure(dynamic)
                     _uiState.update {
@@ -312,7 +364,8 @@ class AnatomyPdfViewModel(application: Application) : AndroidViewModel(applicati
         viewModelScope.launch {
             val responseText = GeminiService.chatWithGemini(
                 messages = updatedList,
-                medicalContext = _uiState.value.activeGeminiContextText
+                medicalContext = _uiState.value.activeGeminiContextText,
+                context = getApplication()
             )
 
             val aiMessage = ChatMessage(

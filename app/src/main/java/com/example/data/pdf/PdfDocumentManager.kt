@@ -383,6 +383,68 @@ object PdfDocumentManager {
     }
 
     /**
+     * Loads and renders all pages of a document as a continuous list
+     */
+    suspend fun loadAllDocumentPages(
+        context: Context,
+        item: PdfDocumentItem
+    ): List<PdfPageData> = withContext(Dispatchers.IO) {
+        val total = openPdf(context, item)
+        val count = if (total > 0) total else item.pageCount
+        val result = mutableListOf<PdfPageData>()
+
+        for (i in 0 until count) {
+            val bitmap = renderPage(i)
+            val text = getPageText(item.id, i)
+            val keyTerms = extractKeyTermsFromPage(item.id, i, text)
+            result.add(
+                PdfPageData(
+                    pageIndex = i,
+                    totalPages = count,
+                    bitmap = bitmap,
+                    text = text,
+                    keyTerms = keyTerms
+                )
+            )
+        }
+        return@withContext result
+    }
+
+    private fun extractKeyTermsFromPage(lectureId: String, pageIndex: Int, text: String): List<String> {
+        val knownTerms = listOf(
+            "Common Carotid Artery",
+            "Carotid Sheath",
+            "Carotid Triangle",
+            "Internal Carotid Artery",
+            "External Carotid Artery",
+            "Internal Jugular Vein",
+            "Vagus Nerve",
+            "Circle of Willis",
+            "Anterior Cerebral Artery",
+            "Middle Cerebral Artery",
+            "Anterior Communicating Artery",
+            "Posterior Communicating Artery",
+            "Basilar Artery",
+            "Vertebral Arteries",
+            "Brachial Plexus",
+            "Musculocutaneous Nerve",
+            "Median Nerve",
+            "Ulnar Nerve",
+            "Radial Nerve",
+            "Axillary Nerve",
+            "Superior Thyroid Artery",
+            "Lingual Artery",
+            "Facial Artery",
+            "Maxillary Artery",
+            "Superficial Temporal Artery",
+            "Carotid Sinus",
+            "Carotid Body"
+        )
+        val matched = knownTerms.filter { term -> text.contains(term, ignoreCase = true) }
+        return if (matched.isNotEmpty()) matched.take(6) else knownTerms.take(4)
+    }
+
+    /**
      * Returns the structured text corresponding to a page
      */
     fun getPageText(lectureId: String, pageIndex: Int): String {

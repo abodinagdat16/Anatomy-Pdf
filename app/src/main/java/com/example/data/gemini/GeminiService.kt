@@ -1,5 +1,6 @@
 package com.example.data.gemini
 
+import android.content.Context
 import android.util.Log
 import com.example.BuildConfig
 import com.example.data.anatomy.AnatomyImage
@@ -30,6 +31,10 @@ object GeminiService {
     private const val TAG = "GeminiService"
     private const val MODEL = "gemini-3.5-flash"
     private const val BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
+    private const val PREFS_NAME = "gemini_api_prefs"
+    private const val KEY_CUSTOM_API_KEY = "custom_gemini_api_key"
+
+    private var inMemoryApiKey: String? = null
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(60, TimeUnit.SECONDS)
@@ -37,11 +42,96 @@ object GeminiService {
         .writeTimeout(60, TimeUnit.SECONDS)
         .build()
 
-    private fun getApiKey(): String {
+    fun getActiveApiKey(context: Context? = null): String {
+        inMemoryApiKey?.let { if (it.isNotBlank()) return it }
+        if (context != null) {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val savedKey = prefs.getString(KEY_CUSTOM_API_KEY, "") ?: ""
+            if (savedKey.isNotBlank()) {
+                inMemoryApiKey = savedKey
+                return savedKey
+            }
+        }
         return try {
-            BuildConfig.GEMINI_API_KEY
+            val buildKey = BuildConfig.GEMINI_API_KEY
+            if (buildKey.isNotBlank() && buildKey != "MY_GEMINI_API_KEY") buildKey else ""
         } catch (e: Exception) {
             ""
+        }
+    }
+
+    fun saveCustomApiKey(context: Context, apiKey: String) {
+        val cleanKey = apiKey.trim()
+        inMemoryApiKey = cleanKey
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_CUSTOM_API_KEY, cleanKey)
+            .apply()
+    }
+
+    fun clearCustomApiKey(context: Context) {
+        inMemoryApiKey = null
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .remove(KEY_CUSTOM_API_KEY)
+            .apply()
+    }
+
+    fun getSavedCustomApiKey(context: Context): String {
+        return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_CUSTOM_API_KEY, "") ?: ""
+    }
+
+    fun hasCustomApiKey(context: Context): Boolean {
+        return getSavedCustomApiKey(context).isNotBlank()
+    }
+
+    fun getApiKeyStatusDescription(context: Context): String {
+        val customKey = getSavedCustomApiKey(context)
+        if (customKey.isNotBlank()) {
+            val masked = if (customKey.length > 8) "${customKey.take(4)}...${customKey.takeLast(4)}" else "••••••••"
+            return "Active (Custom Key: $masked)"
+        }
+        val envKey = try { BuildConfig.GEMINI_API_KEY } catch (e: Exception) { "" }
+        if (envKey.isNotBlank() && envKey != "MY_GEMINI_API_KEY") {
+            return "Active (Default AI Studio Key)"
+        }
+        return "Not Configured"
+    }
+
+    suspend fun testApiKey(apiKey: String): Pair<Boolean, String> = withContext(Dispatchers.IO) {
+        val key = apiKey.trim()
+        if (key.isBlank()) return@withContext Pair(false, "API Key cannot be empty.")
+        try {
+            val url = "$BASE_URL/$MODEL:generateContent?key=$key"
+            val requestJson = JSONObject().apply {
+                put("contents", JSONArray().apply {
+                    put(JSONObject().apply {
+                        put("parts", JSONArray().apply {
+                            put(JSONObject().put("text", "Say OK"))
+                        })
+                    })
+                })
+                put("generationConfig", JSONObject().apply {
+                    put("maxOutputTokens", 5)
+                })
+            }
+            val requestBody = requestJson.toString().toRequestBody("application/json".toMediaType())
+            val request = Request.Builder().url(url).post(requestBody).build()
+            val response = client.newCall(request).execute()
+            val responseBody = response.body?.string() ?: ""
+            if (response.isSuccessful) {
+                Pair(true, "API Key is valid and connected successfully!")
+            } else {
+                val errorMsg = try {
+                    JSONObject(responseBody).optJSONObject("error")?.optString("message") ?: "HTTP error ${response.code}"
+                } catch (e: Exception) {
+                    "HTTP ${response.code}: $responseBody"
+                }
+                Pair(false, errorMsg)
+            }
+        } catch (e: Exception) {
+            Pair(false, "Network error: ${e.localizedMessage ?: "Failed to connect to Google Gemini API"}")
         }
     }
 
@@ -50,11 +140,12 @@ object GeminiService {
      */
     suspend fun chatWithGemini(
         messages: List<ChatMessage>,
-        medicalContext: String? = null
+        medicalContext: String? = null,
+        context: Context? = null
     ): String = withContext(Dispatchers.IO) {
-        val apiKey = getApiKey()
+        val apiKey = getActiveApiKey(context)
         if (apiKey.isBlank() || apiKey == "MY_GEMINI_API_KEY") {
-            return@withContext "⚠️ Gemini API key is missing or not configured. To enable full AI chat with live medical explanations, please set your GEMINI_API_KEY in the Secrets panel."
+            return@withContext "⚠️ Gemini API key is missing or not configured.\n\nPlease tap the ⚙️ Key icon in the top bar to enter your Gemini API key from Google AI Studio (aistudio.google.com)."
         }
 
         try {
@@ -142,8 +233,8 @@ object GeminiService {
     /**
      * Dynamically generates a structured Anatomy deep dive card for any anatomical term
      */
-    suspend fun generateAnatomyCard(term: String): AnatomyStructure? = withContext(Dispatchers.IO) {
-        val apiKey = getApiKey()
+    suspend fun generateAnatomyCard(term: String, context: Context? = null): AnatomyStructure? = withContext(Dispatchers.IO) {
+        val apiKey = getActiveApiKey(context)
         if (apiKey.isBlank() || apiKey == "MY_GEMINI_API_KEY") {
             return@withContext null
         }
