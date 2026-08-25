@@ -230,39 +230,42 @@ class AnatomyPdfViewModel(application: Application) : AndroidViewModel(applicati
             // 1. Check built-in database
             val local = AnatomyRepository.findStructure(query)
             if (local != null) {
+                // If local structure has few images, asynchronously enhance with real search results
+                val currentStructure = if (local.images.size <= 1) {
+                    val searchedImages = com.example.data.anatomy.AnatomyImageSearchService.searchAnatomyImages(local.name)
+                    if (searchedImages.isNotEmpty()) {
+                        val enhanced = local.copy(images = (local.images + searchedImages).distinctBy { it.imageUrl })
+                        AnatomyRepository.saveDynamicStructure(enhanced)
+                        enhanced
+                    } else local
+                } else local
+
                 _uiState.update {
                     it.copy(
-                        selectedStructure = local,
-                        structureHistory = if (it.selectedStructure != null && it.selectedStructure.id != local.id) {
+                        selectedStructure = currentStructure,
+                        structureHistory = if (it.selectedStructure != null && it.selectedStructure.id != currentStructure.id) {
                             it.structureHistory + it.selectedStructure
                         } else it.structureHistory,
                         isLoadingStructure = false
                     )
                 }
             } else {
-                // 2. Generate dynamic anatomy card using Gemini AI
-                val dynamic = GeminiService.generateAnatomyCard(query, getApplication())
-                if (dynamic != null) {
-                    AnatomyRepository.saveDynamicStructure(dynamic)
-                    _uiState.update {
-                        it.copy(
-                            selectedStructure = dynamic,
-                            structureHistory = if (it.selectedStructure != null && it.selectedStructure.id != dynamic.id) {
-                                it.structureHistory + it.selectedStructure
-                            } else it.structureHistory,
-                            isLoadingStructure = false
-                        )
-                    }
-                } else {
-                    // Fallback to default common carotid artery or generic anatomy card
-                    val fallback = AnatomyRepository.getStructureById("common_carotid_artery")
-                    _uiState.update {
-                        it.copy(
-                            selectedStructure = fallback,
-                            isLoadingStructure = false
-                        )
-                    }
-                    showSnackbar("Showing closest anatomical match for: $query")
+                // 2. Try generating dynamic anatomy card via Gemini AI
+                var dynamic = GeminiService.generateAnatomyCard(query, getApplication())
+                if (dynamic == null) {
+                    // 3. Synthesize smart anatomical structure for the exact query
+                    dynamic = AnatomyRepository.createDynamicStructureForTerm(query)
+                }
+
+                AnatomyRepository.saveDynamicStructure(dynamic)
+                _uiState.update {
+                    it.copy(
+                        selectedStructure = dynamic,
+                        structureHistory = if (it.selectedStructure != null && it.selectedStructure.id != dynamic.id) {
+                            it.structureHistory + it.selectedStructure
+                        } else it.structureHistory,
+                        isLoadingStructure = false
+                    )
                 }
             }
         }

@@ -200,15 +200,17 @@ fun AnatomyVectorSchematic(
             cleanId.contains("triangle") -> {
                 CarotidTriangleSchematic(modifier = Modifier.fillMaxSize())
             }
-            cleanId.contains("vagus") || cleanId.contains("nerve") -> {
+            cleanId.contains("vagus") || cleanId.contains("nerve") || cleanId.contains("plexus") -> {
                 VagusNerveSchematic(modifier = Modifier.fillMaxSize())
             }
-            cleanId.contains("jugular") || cleanId.contains("vein") -> {
+            cleanId.contains("jugular") || cleanId.contains("vein") || cleanId.contains("cava") -> {
                 JugularVeinSchematic(modifier = Modifier.fillMaxSize())
             }
-            else -> {
-                // Default: Carotid Artery & Bifurcation System
+            cleanId.contains("carotid") -> {
                 CarotidArteryBifurcationSchematic(modifier = Modifier.fillMaxSize())
+            }
+            else -> {
+                GenericAnatomySchematic(title = title, structureId = structureId, modifier = Modifier.fillMaxSize())
             }
         }
 
@@ -630,6 +632,60 @@ private fun JugularVeinSchematic(modifier: Modifier = Modifier) {
         LabelBadge(text = "Superior Bulb (Sigmoid Sinus)", color = GoogleBlue, modifier = Modifier.align(Alignment.TopCenter).padding(top = 8.dp))
         LabelBadge(text = "Facial & Thyroid Tributaries", color = GoogleBlue, modifier = Modifier.align(Alignment.CenterEnd).padding(end = 8.dp))
         LabelBadge(text = "Venous Angle (Pirogoff's Angle)", color = GoogleBlue, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp))
+    }
+}
+
+@Composable
+private fun GenericAnatomySchematic(title: String, structureId: String, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        val isArtery = structureId.contains("artery", true) || structureId.contains("aorta", true)
+        val isNerve = structureId.contains("nerve", true) || structureId.contains("plexus", true)
+        val isMuscle = structureId.contains("muscle", true) || structureId.contains("biceps", true)
+        
+        val primaryColor = when {
+            isArtery -> Color(0xFFE53935)
+            isNerve -> Color(0xFFFBC02D)
+            isMuscle -> Color(0xFFD81B60)
+            else -> Color(0xFF1976D2)
+        }
+
+        // Draw structural orientation axes
+        drawLine(
+            color = primaryColor.copy(alpha = 0.3f),
+            start = Offset(w * 0.5f, h * 0.1f),
+            end = Offset(w * 0.5f, h * 0.9f),
+            strokeWidth = 2.dp.toPx()
+        )
+        drawLine(
+            color = primaryColor,
+            start = Offset(w * 0.5f, h * 0.25f),
+            end = Offset(w * 0.5f, h * 0.75f),
+            strokeWidth = 16f,
+            cap = StrokeCap.Round
+        )
+        // Branches
+        drawLine(
+            color = primaryColor.copy(alpha = 0.8f),
+            start = Offset(w * 0.5f, h * 0.45f),
+            end = Offset(w * 0.8f, h * 0.35f),
+            strokeWidth = 10f,
+            cap = StrokeCap.Round
+        )
+        drawLine(
+            color = primaryColor.copy(alpha = 0.8f),
+            start = Offset(w * 0.5f, h * 0.55f),
+            end = Offset(w * 0.2f, h * 0.65f),
+            strokeWidth = 10f,
+            cap = StrokeCap.Round
+        )
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        LabelBadge(text = title.ifBlank { "Anatomical Plane" }, color = GoogleBlue, modifier = Modifier.align(Alignment.TopCenter).padding(top = 8.dp))
+        LabelBadge(text = "Proximal Segment", color = GoogleRed, modifier = Modifier.align(Alignment.CenterStart).padding(start = 8.dp))
+        LabelBadge(text = "Distal Ramification", color = Color(0xFFFBC02D), modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp))
     }
 }
 

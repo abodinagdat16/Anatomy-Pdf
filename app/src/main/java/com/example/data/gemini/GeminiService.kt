@@ -351,6 +351,15 @@ object GeminiService {
 
             val id = term.lowercase().replace(" ", "_")
 
+            val searchedImages = com.example.data.anatomy.AnatomyImageSearchService.searchAnatomyImages(term)
+            val finalImages = if (searchedImages.isNotEmpty()) searchedImages else listOf(
+                AnatomyImage(
+                    title = "$term Medical Reference",
+                    description = "High-yield anatomical structure illustration and schematics.",
+                    imageUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e0/Gray1210.png/800px-Gray1210.png"
+                )
+            )
+
             AnatomyStructure(
                 id = id,
                 name = obj.optString("name", term),
@@ -370,13 +379,7 @@ object GeminiService {
                 clinicalCorrelations = clinicalList,
                 mnemonics = obj.optString("mnemonics", ""),
                 highYieldSummary = obj.optString("highYieldSummary", ""),
-                images = listOf(
-                    AnatomyImage(
-                        title = "$term Medical Reference",
-                        description = "High-yield anatomical structure illustration and schematics.",
-                        imageUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/6/67/Gray513.png/800px-Gray513.png"
-                    )
-                )
+                images = finalImages
             )
         } catch (e: Exception) {
             Log.e(TAG, "Error generating anatomy card", e)

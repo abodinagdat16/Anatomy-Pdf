@@ -386,59 +386,77 @@ object PdfDocumentManager {
         document.close()
     }
 
+    private val rendererMutex = Any()
+    private val pageBitmapCache = android.util.LruCache<Int, Bitmap>(16)
+
     /**
      * Loads a PDF from preset ID or URI and prepares the PdfRenderer
      */
     suspend fun openPdf(context: Context, item: PdfDocumentItem): Int = withContext(Dispatchers.IO) {
-        closeCurrentRenderer()
-        try {
-            val file = getLocalFileForDocument(context, item)
-            if (file.exists() && file.length() > 0) {
-                val pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
-                currentFileDescriptor = pfd
-                currentPdfRenderer = PdfRenderer(pfd)
-                return@withContext currentPdfRenderer?.pageCount ?: 0
-            } else {
-                Log.e(TAG, "File does not exist or is empty: ${file.absolutePath}")
+        synchronized(rendererMutex) {
+            closeCurrentRenderer()
+            pageBitmapCache.evictAll()
+            try {
+                val file = getLocalFileForDocument(context, item)
+                if (file.exists() && file.length() > 0) {
+                    val pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+                    currentFileDescriptor = pfd
+                    currentPdfRenderer = PdfRenderer(pfd)
+                    val count = currentPdfRenderer?.pageCount ?: 0
+                    Log.d(TAG, "Successfully opened PDF ${item.title} with $count pages")
+                    return@withContext count
+                } else {
+                    Log.e(TAG, "File does not exist or is empty: ${file.absolutePath}")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error opening PDF: ${item.title}", e)
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error opening PDF: ${item.title}", e)
+            return@withContext 0
         }
-        return@withContext 0
     }
 
     /**
-     * Renders a specific page to a high-res bitmap
+     * Renders a specific page to a high-res bitmap with caching
      */
-    suspend fun renderPage(pageIndex: Int, densityDpi: Int = 300): Bitmap? = withContext(Dispatchers.IO) {
-        val renderer = currentPdfRenderer ?: return@withContext null
-        if (pageIndex < 0 || pageIndex >= renderer.pageCount) return@withContext null
+    suspend fun renderPage(pageIndex: Int): Bitmap? = withContext(Dispatchers.IO) {
+        synchronized(rendererMutex) {
+            val cached = pageBitmapCache.get(pageIndex)
+            if (cached != null && !cached.isRecycled) {
+                return@withContext cached
+            }
 
-        try {
-            val page = renderer.openPage(pageIndex)
-            // 2x scaling for crisp reading and zoom
-            val width = (page.width * 2).coerceAtLeast(800)
-            val height = (page.height * 2).coerceAtLeast(1100)
+            val renderer = currentPdfRenderer ?: return@withContext null
+            if (pageIndex < 0 || pageIndex >= renderer.pageCount) return@withContext null
 
-            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-            val canvas = Canvas(bitmap)
-            canvas.drawColor(Color.WHITE)
+            try {
+                val page = renderer.openPage(pageIndex)
+                // 1.5x - 2x scaling for crisp reading while keeping memory footprint safe for 100+ pages
+                val targetWidth = (page.width * 1.6f).toInt().coerceIn(600, 1400)
+                val targetHeight = (page.height * 1.6f).toInt().coerceIn(800, 2000)
 
-            page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-            page.close()
-            return@withContext bitmap
-        } catch (e: Exception) {
-            Log.e(TAG, "Error rendering page $pageIndex", e)
-            null
+                val bitmap = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.RGB_565)
+                val canvas = Canvas(bitmap)
+                canvas.drawColor(Color.WHITE)
+
+                page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                page.close()
+
+                pageBitmapCache.put(pageIndex, bitmap)
+                return@withContext bitmap
+            } catch (e: Exception) {
+                Log.e(TAG, "Error rendering page $pageIndex", e)
+                null
+            }
         }
     }
 
     /**
-     * Loads and renders all pages of a document as a continuous list
+     * Loads all pages of a document reliably up to the true total page count
      */
     suspend fun loadAllDocumentPages(
         context: Context,
-        item: PdfDocumentItem
+        item: PdfDocumentItem,
+        onProgress: ((current: Int, total: Int) -> Unit)? = null
     ): List<PdfPageData> = withContext(Dispatchers.IO) {
         val total = openPdf(context, item)
         val file = getLocalFileForDocument(context, item)
@@ -455,8 +473,10 @@ object PdfDocumentManager {
             Log.e(TAG, "Error extracting pages with PDFBox", e)
         }
 
+        // Build all page data objects so full document structure is immediately ready
         for (i in 0 until count) {
-            val bitmap = renderPage(i)
+            // Render first 3 pages immediately; remaining pages will render on-demand via cache when scrolled into view
+            val bitmap = if (i < 3) renderPage(i) else pageBitmapCache.get(i)
             val pdfBoxPage = extractedPages.getOrNull(i)
             val fallbackText = getPageText(item.id, i)
             val text = if (!pdfBoxPage?.fullText.isNullOrBlank()) pdfBoxPage!!.fullText else fallbackText
@@ -476,6 +496,7 @@ object PdfDocumentManager {
                     keyTerms = keyTerms
                 )
             )
+            onProgress?.invoke(i + 1, count)
         }
         return@withContext result
     }

@@ -120,6 +120,9 @@ import com.example.ui.components.AllImagesDialog
 import com.example.ui.components.ContextualSelectionMenu
 import com.example.ui.components.GeminiApiKeyDialog
 import com.example.ui.components.ImageZoomDialog
+import com.example.ui.components.IosLoadingDialog
+import com.example.ui.components.IosLoadingHUD
+import com.example.ui.components.IosCupertinoActivityIndicator
 import com.example.ui.drawers.AnatomyDetailDrawer
 import com.example.ui.drawers.GeminiChatDrawer
 import com.example.ui.theme.GeminiSparkle
@@ -425,18 +428,10 @@ fun PdfViewerScreen(
                 contentAlignment = Alignment.TopCenter
             ) {
                 if (state.isLoadingDocument) {
-                    Column(
-                        modifier = Modifier.align(Alignment.Center),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        CircularProgressIndicator(color = GoogleBlue)
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = "Loading Continuous PDF Pages...",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
+                    IosLoadingHUD(
+                        message = "Loading PDF Pages...",
+                        modifier = Modifier.align(Alignment.Center)
+                    )
                 } else {
                     LazyColumn(
                         state = listState,
@@ -603,11 +598,25 @@ private fun PdfPageListItem(
 ) {
     val context = LocalContext.current
     val isTranslateAvailable = remember(context) { GoogleTranslateHelper.isGoogleTranslateAvailable(context) }
+    var pageBitmap by remember(page.pageIndex, page.bitmap) { mutableStateOf(page.bitmap) }
     var selectedWordIndices by remember { mutableStateOf<Set<Int>>(emptySet()) }
     var activeSelectionText by remember { mutableStateOf("") }
     var menuAnchorNormX by remember { mutableStateOf(0.5f) }
     var menuAnchorNormY by remember { mutableStateOf(0.5f) }
     var dragStartIndex by remember { mutableStateOf<Int?>(null) }
+
+    LaunchedEffect(page.pageIndex, page.bitmap) {
+        if (pageBitmap == null) {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val bmp = com.example.data.pdf.PdfDocumentManager.renderPage(page.pageIndex)
+                if (bmp != null) {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                        pageBitmap = bmp
+                    }
+                }
+            }
+        }
+    }
 
     Card(
         shape = RoundedCornerShape(8.dp),
@@ -645,6 +654,7 @@ private fun PdfPageListItem(
             Spacer(modifier = Modifier.height(10.dp))
 
             // Main Interactive PDF Page Canvas with direct in-PDF text selection
+            val currentBmp = pageBitmap ?: page.bitmap
             BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -652,8 +662,8 @@ private fun PdfPageListItem(
                     .background(Color.White)
             ) {
                 val boxWidthPx = constraints.maxWidth.toFloat()
-                val aspectRatio = if (page.bitmap != null && page.bitmap.width > 0) {
-                    page.bitmap.width.toFloat() / page.bitmap.height.toFloat()
+                val aspectRatio = if (currentBmp != null && currentBmp.width > 0) {
+                    currentBmp.width.toFloat() / currentBmp.height.toFloat()
                 } else {
                     595f / 842f
                 }
@@ -664,13 +674,23 @@ private fun PdfPageListItem(
                         .fillMaxWidth()
                         .aspectRatio(aspectRatio)
                 ) {
-                    // 1. Rendered High-Resolution PDF Page Image
-                    if (page.bitmap != null) {
+                    // 1. Rendered High-Resolution PDF Page Image or iOS Spinner
+                    if (currentBmp != null) {
                         Image(
-                            bitmap = page.bitmap.asImageBitmap(),
+                            bitmap = currentBmp.asImageBitmap(),
                             contentDescription = "PDF Page ${page.pageIndex + 1}",
                             modifier = Modifier.fillMaxSize()
                         )
+                    } else {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            IosCupertinoActivityIndicator(
+                                modifier = Modifier.size(28.dp),
+                                color = GoogleBlue
+                            )
+                        }
                     }
 
                     // 2. Direct Selection Highlight Canvas overlay directly on top of PDF

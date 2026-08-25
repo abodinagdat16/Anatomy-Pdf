@@ -320,6 +320,48 @@ fun AnatomyDetailDrawer(
                         }
                     }
 
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Google Images Quick Search Action Button
+                    val context = androidx.compose.ui.platform.LocalContext.current
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                try {
+                                    val searchUrl = com.example.data.anatomy.AnatomyImageSearchService.getGoogleImagesSearchUrl(structure.name)
+                                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(searchUrl)).apply {
+                                        flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                                    }
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    android.util.Log.e("AnatomyDetailDrawer", "Error opening Google Images", e)
+                                }
+                            }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Collections,
+                                contentDescription = "Search Google Images",
+                                tint = GoogleBlue,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Search Google Images for \"${structure.name}\"",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = GoogleBlue,
+                                maxLines = 1
+                            )
+                        }
+                    }
+
                     Spacer(modifier = Modifier.height(16.dp))
                 }
 

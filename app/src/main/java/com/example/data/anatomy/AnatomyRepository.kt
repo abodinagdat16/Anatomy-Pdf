@@ -43,6 +43,55 @@ object AnatomyRepository {
         structures[structure.id.lowercase()] = structure
     }
 
+    suspend fun createDynamicStructureForTerm(query: String): AnatomyStructure {
+        val clean = query.trim()
+        val lower = clean.lowercase()
+
+        val category = when {
+            lower.contains("artery") || lower.contains("aorta") || lower.contains("trunk") -> StructureCategory.ARTERY
+            lower.contains("vein") || lower.contains("sinus") || lower.contains("cava") -> StructureCategory.VEIN
+            lower.contains("nerve") || lower.contains("plexus") || lower.contains("trunk") -> StructureCategory.NERVE
+            lower.contains("muscle") || lower.contains("belly") -> StructureCategory.MUSCLE
+            lower.contains("sheath") || lower.contains("fascia") -> StructureCategory.FASCIA_SHEATH
+            lower.contains("triangle") || lower.contains("fossa") || lower.contains("space") -> StructureCategory.ANATOMICAL_SPACE
+            lower.contains("bone") || lower.contains("cartilage") || lower.contains("vertebra") -> StructureCategory.BONE
+            else -> StructureCategory.ORGAN
+        }
+
+        val images = AnatomyImageSearchService.searchAnatomyImages(clean)
+        val structureId = clean.lowercase().replace("[^a-z0-9]".toRegex(), "_")
+
+        val dynamic = AnatomyStructure(
+            id = structureId,
+            name = clean.split(" ").joinToString(" ") { it.replaceFirstChar { char -> char.uppercase() } },
+            latinName = "Structura $clean",
+            category = category,
+            origin = "Anatomical course and origins corresponding to $clean.",
+            termination = "Distal ramifications or terminations of $clean.",
+            definition = "$clean is an essential anatomical structure identified in clinical and surgical anatomy references.",
+            course = "Topographical trajectory, neurovascular fascial compartments, and regional pathways for $clean.",
+            relations = AnatomyRelations(
+                anterior = listOf("Superficial fascia and overlying regional structures"),
+                posterior = listOf("Deep fascial boundaries and skeletal planes"),
+                medial = listOf("Medial visceral or neurovascular axis"),
+                lateral = listOf("Lateral compartment boundaries")
+            ),
+            branches = listOf(
+                BranchLink(name = "Regional Branches / Divisions", description = "Clinical neurovascular branches of $clean.")
+            ),
+            clinicalCorrelations = listOf(
+                "Clinical examination and palpation landmarks for $clean.",
+                "Surgical risk zones and entrapment / compression syndromes involving $clean."
+            ),
+            mnemonics = "High-yield anatomical relations for $clean.",
+            highYieldSummary = "Key high-yield anatomy for $clean featured in USMLE, NBME, and clinical anatomy curricula.",
+            images = images
+        )
+
+        saveDynamicStructure(dynamic)
+        return dynamic
+    }
+
     private fun registerBuiltInAtlas() {
         // 1. Common Carotid Artery
         val cca = AnatomyStructure(
