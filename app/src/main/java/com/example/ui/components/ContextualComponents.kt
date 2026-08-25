@@ -35,6 +35,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -56,6 +57,10 @@ import com.example.ui.theme.GoogleBlue
 import com.example.ui.theme.GoogleBlueLight
 import com.example.ui.theme.GoogleRed
 
+import androidx.compose.material.icons.filled.Translate
+import androidx.compose.ui.platform.LocalContext
+import com.example.data.translate.GoogleTranslateHelper
+
 /**
  * Contextual Floating Action Menu that appears when a medical student selects or taps text in the lecture
  */
@@ -65,10 +70,13 @@ fun ContextualSelectionMenu(
     onQuickDefinition: (String) -> Unit,
     onAskGemini: (String) -> Unit,
     onSearchInDoc: (String) -> Unit,
+    onTranslate: ((String) -> Unit)? = null,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val clipboardManager = LocalClipboardManager.current
+    val context = LocalContext.current
+    val isTranslateAvailable = remember { GoogleTranslateHelper.isGoogleTranslateAvailable(context) }
 
     Surface(
         modifier = modifier
@@ -81,7 +89,7 @@ fun ContextualSelectionMenu(
         Column(
             modifier = Modifier
                 .padding(horizontal = 12.dp, vertical = 8.dp)
-                .width(280.dp)
+                .width(if (isTranslateAvailable) 330.dp else 280.dp)
         ) {
             // Header showing selected term
             Row(
@@ -135,7 +143,25 @@ fun ContextualSelectionMenu(
                     onClick = { onAskGemini(selectedText) }
                 )
 
-                // 3. Copy Text
+                // 3. Google Translate (Only shown if Google Translate app or handler is available)
+                if (isTranslateAvailable) {
+                    SelectionActionButton(
+                        icon = Icons.Default.Translate,
+                        label = "Translate",
+                        tint = GoogleBlue,
+                        backgroundTint = GoogleBlueLight,
+                        onClick = {
+                            if (onTranslate != null) {
+                                onTranslate(selectedText)
+                            } else {
+                                GoogleTranslateHelper.translateText(context, selectedText)
+                            }
+                            onDismiss()
+                        }
+                    )
+                }
+
+                // 4. Copy Text
                 SelectionActionButton(
                     icon = Icons.Default.ContentCopy,
                     label = "Copy",
@@ -147,7 +173,7 @@ fun ContextualSelectionMenu(
                     }
                 )
 
-                // 4. Search in Document
+                // 5. Search in Document
                 SelectionActionButton(
                     icon = Icons.Default.Search,
                     label = "Search",
@@ -244,7 +270,7 @@ fun ImageZoomDialog(
             ) {
                 Card(
                     shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1F22)),
                     modifier = Modifier
                         .fillMaxWidth(0.95f)
                         .weight(1f, fill = false)
@@ -253,16 +279,14 @@ fun ImageZoomDialog(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(12.dp),
+                            .height(380.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        AsyncImage(
-                            model = image.imageUrl,
-                            contentDescription = image.title,
-                            contentScale = ContentScale.Fit,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(380.dp)
+                        AnatomyImageViewer(
+                            image = image,
+                            structureId = image.title,
+                            modifier = Modifier.fillMaxSize(),
+                            showModeToggle = true
                         )
                     }
                 }

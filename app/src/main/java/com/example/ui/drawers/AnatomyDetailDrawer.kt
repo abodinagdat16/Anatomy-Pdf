@@ -63,10 +63,10 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
 import com.example.data.anatomy.AnatomyImage
 import com.example.data.anatomy.AnatomyStructure
 import com.example.data.anatomy.StructureCategory
+import com.example.ui.components.AnatomyImageViewer
 import com.example.ui.theme.GoogleBlue
 import com.example.ui.theme.GoogleBlueLight
 import com.example.ui.theme.GoogleRed
@@ -254,14 +254,13 @@ fun AnatomyDetailDrawer(
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(180.dp)
-                                    .background(Color(0xFFF1F3F4))
+                                    .height(200.dp)
                             ) {
-                                AsyncImage(
-                                    model = primaryImage.imageUrl,
-                                    contentDescription = primaryImage.title,
-                                    contentScale = ContentScale.Fit,
-                                    modifier = Modifier.fillMaxSize()
+                                AnatomyImageViewer(
+                                    image = primaryImage,
+                                    structureId = structure.id,
+                                    modifier = Modifier.fillMaxSize(),
+                                    showModeToggle = true
                                 )
 
                                 // Zoom Overlay Badge

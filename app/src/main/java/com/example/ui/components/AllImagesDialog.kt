@@ -42,7 +42,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import coil.compose.AsyncImage
 import com.example.data.anatomy.AnatomyImage
 import com.example.ui.theme.GoogleBlue
 
@@ -121,13 +120,12 @@ fun AllImagesDialog(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .height(140.dp)
-                                        .background(Color(0xFFF1F3F4))
                                 ) {
-                                    AsyncImage(
-                                        model = img.imageUrl,
-                                        contentDescription = img.title,
-                                        contentScale = ContentScale.Fit,
-                                        modifier = Modifier.fillMaxSize()
+                                    AnatomyImageViewer(
+                                        image = img,
+                                        structureId = structureTitle,
+                                        modifier = Modifier.fillMaxSize(),
+                                        showModeToggle = false
                                     )
                                     Box(
                                         modifier = Modifier

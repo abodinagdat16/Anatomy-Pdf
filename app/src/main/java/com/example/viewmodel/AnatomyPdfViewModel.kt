@@ -383,23 +383,54 @@ class AnatomyPdfViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
+    fun toggleSearchBar() {
+        val newState = !_uiState.value.isSearchActive
+        _uiState.update {
+            it.copy(
+                isSearchActive = newState,
+                searchQuery = if (!newState) "" else it.searchQuery,
+                searchMatchCount = if (!newState) 0 else it.searchMatchCount
+            )
+        }
+    }
+
+    fun openSearchBar() {
+        _uiState.update { it.copy(isSearchActive = true) }
+    }
+
     fun setSearchQuery(query: String) {
-        val matches = if (query.isNotBlank()) {
-            val count = _uiState.value.currentPageText.split(query, ignoreCase = true).size - 1
-            count.coerceAtLeast(0)
+        val clean = query.trim()
+        val matches = if (clean.isNotBlank()) {
+            val totalWords = _uiState.value.pages.sumOf { p ->
+                p.words.count { w -> w.text.contains(clean, ignoreCase = true) }
+            }
+            if (totalWords > 0) totalWords else {
+                _uiState.value.pages.sumOf { p ->
+                    val count = p.text.split(clean, ignoreCase = true).size - 1
+                    count.coerceAtLeast(0)
+                }
+            }
         } else 0
 
         _uiState.update {
             it.copy(
                 searchQuery = query,
                 searchMatchCount = matches,
-                isSearchActive = query.isNotBlank()
+                isSearchActive = true // Keep search bar open even if user backspaces to empty!
             )
         }
     }
 
-    fun clearSearch() {
+    fun clearSearchText() {
+        _uiState.update { it.copy(searchQuery = "", searchMatchCount = 0) }
+    }
+
+    fun closeSearchBar() {
         _uiState.update { it.copy(searchQuery = "", isSearchActive = false, searchMatchCount = 0) }
+    }
+
+    fun clearSearch() {
+        closeSearchBar()
     }
 
     fun showSnackbar(message: String) {

@@ -48,6 +48,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.ContentCopy
@@ -57,6 +58,7 @@ import androidx.compose.material.icons.filled.LocalHospital
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -113,6 +115,7 @@ import androidx.compose.ui.zIndex
 import com.example.data.gemini.GeminiService
 import com.example.data.pdf.ExtractedPdfWord
 import com.example.data.pdf.PdfPageData
+import com.example.data.translate.GoogleTranslateHelper
 import com.example.ui.components.AllImagesDialog
 import com.example.ui.components.ContextualSelectionMenu
 import com.example.ui.components.GeminiApiKeyDialog
@@ -236,8 +239,7 @@ fun PdfViewerScreen(
 
                             // Search in PDF
                             IconButton(onClick = {
-                                if (state.isSearchActive) viewModel.clearSearch()
-                                else viewModel.setSearchQuery("carotid")
+                                viewModel.toggleSearchBar()
                             }) {
                                 Icon(
                                     imageVector = Icons.Default.Search,
@@ -285,21 +287,46 @@ fun PdfViewerScreen(
                                 OutlinedTextField(
                                     value = state.searchQuery,
                                     onValueChange = { viewModel.setSearchQuery(it) },
-                                    placeholder = { Text("Search anatomical terms in lecture...", fontSize = 12.sp) },
+                                    placeholder = { Text("Search text or anatomical terms in PDF...", fontSize = 12.sp) },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.Search,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(18.dp),
+                                            tint = GoogleBlue
+                                        )
+                                    },
+                                    trailingIcon = {
+                                        if (state.searchQuery.isNotEmpty()) {
+                                            IconButton(
+                                                onClick = { viewModel.clearSearchText() },
+                                                modifier = Modifier.size(28.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Clear,
+                                                    contentDescription = "Clear search text",
+                                                    modifier = Modifier.size(16.dp),
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
+                                    },
                                     modifier = Modifier
                                         .weight(1f)
                                         .height(48.dp),
                                     shape = RoundedCornerShape(24.dp),
                                     colors = OutlinedTextFieldDefaults.colors(
                                         focusedBorderColor = GoogleBlue,
-                                        unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                                        unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
                                         focusedContainerColor = MaterialTheme.colorScheme.surface,
-                                        unfocusedContainerColor = MaterialTheme.colorScheme.surface
+                                        unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface
                                     ),
                                     singleLine = true
                                 )
-                                Spacer(modifier = Modifier.width(8.dp))
                                 if (state.searchMatchCount > 0) {
+                                    Spacer(modifier = Modifier.width(8.dp))
                                     Surface(
                                         color = GoogleBlueLight,
                                         shape = RoundedCornerShape(12.dp)
@@ -313,7 +340,8 @@ fun PdfViewerScreen(
                                         )
                                     }
                                 }
-                                IconButton(onClick = { viewModel.clearSearch() }) {
+                                Spacer(modifier = Modifier.width(4.dp))
+                                IconButton(onClick = { viewModel.closeSearchBar() }) {
                                     Icon(Icons.Default.Close, contentDescription = "Close search")
                                 }
                             }
@@ -430,6 +458,7 @@ fun PdfViewerScreen(
                         ) { pageIndex, pageData ->
                             PdfPageListItem(
                                 page = pageData,
+                                searchQuery = state.searchQuery,
                                 onAnatomyClick = { term -> viewModel.openAnatomyDefinition(term) },
                                 onAskGemini = { term ->
                                     viewModel.openGeminiWithContext("Explain high-yield anatomical relations, course, and USMLE facts regarding: $term")
@@ -482,6 +511,7 @@ fun PdfViewerScreen(
                             viewModel.openGeminiWithContext("Explain high-yield anatomical relations, course, and USMLE facts regarding: $term")
                         },
                         onSearchInDoc = { term -> viewModel.setSearchQuery(term) },
+                        onTranslate = { text -> GoogleTranslateHelper.translateText(context, text) },
                         onDismiss = { viewModel.dismissSelectionPopup() }
                     )
                 }
@@ -565,12 +595,14 @@ fun PdfViewerScreen(
 @Composable
 private fun PdfPageListItem(
     page: PdfPageData,
+    searchQuery: String = "",
     onAnatomyClick: (String) -> Unit,
     onAskGemini: (String) -> Unit,
     onTextSelected: (String, String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val isTranslateAvailable = remember(context) { GoogleTranslateHelper.isGoogleTranslateAvailable(context) }
     var selectedWordIndices by remember { mutableStateOf<Set<Int>>(emptySet()) }
     var activeSelectionText by remember { mutableStateOf("") }
     var menuAnchorNormX by remember { mutableStateOf(0.5f) }
@@ -758,7 +790,38 @@ private fun PdfPageListItem(
                         val canvasWidth = size.width
                         val canvasHeight = size.height
 
-                        // Draw selection highlights directly over selected words on the PDF
+                        // 1. Draw Search Matches directly on PDF Canvas (Bright yellow/amber highlight)
+                        val trimmedQuery = searchQuery.trim()
+                        if (trimmedQuery.isNotBlank()) {
+                            page.words.forEach { word ->
+                                if (word.text.contains(trimmedQuery, ignoreCase = true)) {
+                                    val left = word.normLeft * canvasWidth
+                                    val top = word.normTop * canvasHeight
+                                    val right = word.normRight * canvasWidth
+                                    val bottom = word.normBottom * canvasHeight
+                                    val width = (right - left).coerceAtLeast(10f)
+                                    val height = (bottom - top).coerceAtLeast(12f)
+
+                                    // Bright translucent yellow highlight
+                                    drawRoundRect(
+                                        color = Color(0x99FFEB3B),
+                                        topLeft = Offset(left - 2f, top - 1f),
+                                        size = Size(width + 4f, height + 2f),
+                                        cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx())
+                                    )
+                                    // Deep amber crisp border
+                                    drawRoundRect(
+                                        color = Color(0xFFF57F17),
+                                        topLeft = Offset(left - 2f, top - 1f),
+                                        size = Size(width + 4f, height + 2f),
+                                        cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx()),
+                                        style = Stroke(width = 1.2.dp.toPx())
+                                    )
+                                }
+                            }
+                        }
+
+                        // 2. Draw user selection highlights directly over selected words on the PDF
                         selectedWordIndices.forEach { idx ->
                             val word = page.words.getOrNull(idx) ?: return@forEach
                             val left = word.normLeft * canvasWidth
@@ -867,6 +930,36 @@ private fun PdfPageListItem(
                                                 fontWeight = FontWeight.Bold,
                                                 color = Color.White
                                             )
+                                        }
+                                    }
+
+                                    // Google Translate Button (Shown if Google Translate is available)
+                                    if (isTranslateAvailable) {
+                                        Surface(
+                                            color = Color(0xFF333537),
+                                            shape = RoundedCornerShape(16.dp),
+                                            modifier = Modifier.clickable {
+                                                GoogleTranslateHelper.translateText(context, activeSelectionText)
+                                            }
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Translate,
+                                                    contentDescription = "Translate with Google Translate",
+                                                    tint = Color(0xFF8AB4F8),
+                                                    modifier = Modifier.size(13.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(3.dp))
+                                                Text(
+                                                    text = "Translate",
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color.White
+                                                )
+                                            }
                                         }
                                     }
 

@@ -46,18 +46,19 @@ class MainActivity : ComponentActivity() {
         val action = intent.action
         val type = intent.type
 
-        if (Intent.ACTION_VIEW == action && intent.data != null) {
-            val uri: Uri = intent.data ?: return
-            val fileName = uri.lastPathSegment?.substringAfterLast("/") ?: "Opened PDF"
-            viewModel.loadFromUri(uri, fileName)
-        } else if (Intent.ACTION_SEND == action && type != null) {
-            if ("application/pdf" == type || type.startsWith("application/")) {
-                val uri: Uri? = intent.getParcelableExtra(Intent.EXTRA_STREAM)
-                if (uri != null) {
-                    val fileName = uri.lastPathSegment?.substringAfterLast("/") ?: "Shared PDF"
-                    viewModel.loadFromUri(uri, fileName)
-                }
-            }
+        var targetUri: Uri? = null
+
+        if (Intent.ACTION_VIEW == action) {
+            targetUri = intent.data ?: (if (intent.clipData != null && intent.clipData!!.itemCount > 0) intent.clipData!!.getItemAt(0).uri else null)
+        } else if (Intent.ACTION_SEND == action) {
+            targetUri = intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+                ?: (if (intent.clipData != null && intent.clipData!!.itemCount > 0) intent.clipData!!.getItemAt(0).uri else null)
+                ?: intent.data
+        }
+
+        if (targetUri != null) {
+            val resolvedName = com.example.data.pdf.PdfDocumentManager.resolveDisplayName(this, targetUri)
+            viewModel.loadFromUri(targetUri, resolvedName)
         }
     }
 }

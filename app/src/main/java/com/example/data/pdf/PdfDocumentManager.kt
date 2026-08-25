@@ -10,6 +10,7 @@ import android.graphics.pdf.PdfDocument
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
+import android.provider.OpenableColumns
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -21,6 +22,62 @@ object PdfDocumentManager {
 
     private var currentFileDescriptor: ParcelFileDescriptor? = null
     private var currentPdfRenderer: PdfRenderer? = null
+
+    /**
+     * Resolves human-readable document name from ContentProvider or File Uri
+     */
+    fun resolveDisplayName(context: Context, uri: Uri): String {
+        try {
+            if (uri.scheme == "content") {
+                context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                    val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (nameIndex != -1 && cursor.moveToFirst()) {
+                        val name = cursor.getString(nameIndex)
+                        if (!name.isNullOrBlank()) {
+                            return name
+                        }
+                    }
+                }
+            } else if (uri.scheme == "file") {
+                val name = uri.lastPathSegment
+                if (!name.isNullOrBlank()) {
+                    return name
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to resolve display name for uri: $uri", e)
+        }
+        return uri.lastPathSegment?.substringAfterLast("/") ?: "Imported PDF"
+    }
+
+    /**
+     * Safely returns a local File instance for any PDF (copying content URIs to local cache)
+     */
+    fun getLocalFileForDocument(context: Context, item: PdfDocumentItem): File {
+        if (item.uri != null) {
+            val safeId = item.id.replace("[^a-zA-Z0-9_]".toRegex(), "_")
+            val cachedFile = File(context.cacheDir, "imported_$safeId.pdf")
+            if (!cachedFile.exists() || cachedFile.length() == 0L) {
+                try {
+                    context.contentResolver.openInputStream(item.uri)?.use { input ->
+                        FileOutputStream(cachedFile).use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error copying URI to local cache: ${item.uri}", e)
+                }
+            }
+            return cachedFile
+        } else {
+            val file = File(context.filesDir, "${item.id}.pdf")
+            if (!file.exists()) {
+                val pages = presetLecturePages[item.id] ?: emptyList()
+                createPdfFileOnDisk(file, pages, item.title)
+            }
+            return file
+        }
+    }
 
     val sampleLectures = listOf(
         PdfDocumentItem(
@@ -335,23 +392,17 @@ object PdfDocumentManager {
     suspend fun openPdf(context: Context, item: PdfDocumentItem): Int = withContext(Dispatchers.IO) {
         closeCurrentRenderer()
         try {
-            val pfd: ParcelFileDescriptor? = if (item.uri != null) {
-                context.contentResolver.openFileDescriptor(item.uri, "r")
-            } else {
-                val file = File(context.filesDir, "${item.id}.pdf")
-                if (!file.exists()) {
-                    ensurePresetPdfFiles(context)
-                }
-                ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
-            }
-
-            if (pfd != null) {
+            val file = getLocalFileForDocument(context, item)
+            if (file.exists() && file.length() > 0) {
+                val pfd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
                 currentFileDescriptor = pfd
                 currentPdfRenderer = PdfRenderer(pfd)
                 return@withContext currentPdfRenderer?.pageCount ?: 0
+            } else {
+                Log.e(TAG, "File does not exist or is empty: ${file.absolutePath}")
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error opening PDF", e)
+            Log.e(TAG, "Error opening PDF: ${item.title}", e)
         }
         return@withContext 0
     }
@@ -390,21 +441,15 @@ object PdfDocumentManager {
         item: PdfDocumentItem
     ): List<PdfPageData> = withContext(Dispatchers.IO) {
         val total = openPdf(context, item)
+        val file = getLocalFileForDocument(context, item)
         val count = if (total > 0) total else item.pageCount
         val result = mutableListOf<PdfPageData>()
 
-        // Extract text & word positions using PDFBox
+        // Extract text & word positions using PDFBox from local file
         var extractedPages: List<ExtractedPageResult> = emptyList()
         try {
-            if (item.uri != null) {
-                context.contentResolver.openInputStream(item.uri)?.use { stream ->
-                    extractedPages = PdfBoxHelper.extractAllPagesFromStream(context, stream)
-                }
-            } else {
-                val file = File(context.filesDir, "${item.id}.pdf")
-                if (file.exists()) {
-                    extractedPages = PdfBoxHelper.extractAllPages(context, file)
-                }
+            if (file.exists() && file.length() > 0) {
+                extractedPages = PdfBoxHelper.extractAllPages(context, file)
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error extracting pages with PDFBox", e)
