@@ -1,7 +1,7 @@
 # Anatomy PDF
 
 <p align="center">
-  <img src="app/src/main/res/mipmap-xxxhdpi/ic_launcher.webp" width="100" height="100" alt="Anatomy PDF App Icon"/>
+<img src="https://raw.githubusercontent.com/abodinagdat16/Anatomy-Pdf/main/Anatomy%20PDF_icon.png" width="100" height="100" alt="Anatomy PDF App Icon">
 </p>
 
 Anatomy PDF is an Android application designed for medical students, doctors, and healthcare learners. It combines a fast PDF reader with an interactive anatomical atlas and an integrated AI study assistant.
