@@ -69,6 +69,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.gemini.ChatMessage
+import com.example.ui.components.MarkdownText
 import com.example.ui.theme.GeminiGradientEnd
 import com.example.ui.theme.GeminiGradientStart
 import com.example.ui.theme.GeminiPurpleLight
@@ -425,11 +426,11 @@ private fun GeminiMessageBubble(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
-                        Text(
-                            text = msg.text,
-                            style = MaterialTheme.typography.bodyMedium,
+                        MarkdownText(
+                            markdown = msg.text,
                             color = MaterialTheme.colorScheme.onSurface,
-                            lineHeight = 20.sp
+                            fontSize = 14.sp,
+                            modifier = Modifier.fillMaxWidth()
                         )
 
                         // Action row (Copy, etc.)

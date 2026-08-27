@@ -19,6 +19,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -57,9 +58,13 @@ import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.LocalHospital
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.ZoomIn
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -604,6 +609,8 @@ private fun PdfPageListItem(
     var menuAnchorNormX by remember { mutableStateOf(0.5f) }
     var menuAnchorNormY by remember { mutableStateOf(0.5f) }
     var dragStartIndex by remember { mutableStateOf<Int?>(null) }
+    var zoomScale by remember { mutableStateOf(1f) }
+    var panOffset by remember { mutableStateOf(Offset.Zero) }
 
     LaunchedEffect(page.pageIndex, page.bitmap) {
         if (pageBitmap == null) {
@@ -644,21 +651,57 @@ private fun PdfPageListItem(
                     )
                 }
 
-                Text(
-                    text = "Tap or double-tap words directly on PDF",
-                    fontSize = 10.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    if (zoomScale > 1.05f) {
+                        Surface(
+                            color = GoogleBlue.copy(alpha = 0.15f),
+                            shape = RoundedCornerShape(6.dp),
+                            modifier = Modifier.clickable {
+                                zoomScale = 1f
+                                panOffset = Offset.Zero
+                            }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.RestartAlt,
+                                    contentDescription = "Reset Zoom",
+                                    tint = GoogleBlue,
+                                    modifier = Modifier.size(11.dp)
+                                )
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text(
+                                    text = "${((zoomScale * 10).toInt()) / 10f}x Reset",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = GoogleBlue
+                                )
+                            }
+                        }
+                    }
+
+                    Text(
+                        text = "Pinch to zoom • Tap words to select",
+                        fontSize = 10.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // Main Interactive PDF Page Canvas with direct in-PDF text selection
+            // Main Interactive PDF Page Canvas with Pinch-to-Zoom & direct in-PDF text selection
             val currentBmp = pageBitmap ?: page.bitmap
             BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(4.dp))
+                    .clipToBounds()
                     .background(Color.White)
             ) {
                 val boxWidthPx = constraints.maxWidth.toFloat()
@@ -669,10 +712,40 @@ private fun PdfPageListItem(
                 }
                 val boxHeightPx = boxWidthPx / aspectRatio
 
+                val mapToNormCoords: (Offset, Float, Float) -> Pair<Float, Float> = { rawOffset, w, h ->
+                    val unscaledX = (rawOffset.x - w / 2f - panOffset.x) / zoomScale + w / 2f
+                    val unscaledY = (rawOffset.y - h / 2f - panOffset.y) / zoomScale + h / 2f
+                    Pair((unscaledX / w).coerceIn(0f, 1f), (unscaledY / h).coerceIn(0f, 1f))
+                }
+
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .aspectRatio(aspectRatio)
+                        .clipToBounds()
+                        .pointerInput(page.words) {
+                            detectTransformGestures(panZoomLock = false) { _, pan, zoom, _ ->
+                                val newScale = (zoomScale * zoom).coerceIn(1f, 4.5f)
+                                zoomScale = newScale
+                                if (newScale > 1.02f) {
+                                    val maxPanX = (size.width * (newScale - 1f)) / 2f
+                                    val maxPanY = (size.height * (newScale - 1f)) / 2f
+                                    panOffset = Offset(
+                                        x = (panOffset.x + pan.x).coerceIn(-maxPanX, maxPanX),
+                                        y = (panOffset.y + pan.y).coerceIn(-maxPanY, maxPanY)
+                                    )
+                                    dragStartIndex = null
+                                } else {
+                                    panOffset = Offset.Zero
+                                }
+                            }
+                        }
+                        .graphicsLayer {
+                            scaleX = zoomScale
+                            scaleY = zoomScale
+                            translationX = panOffset.x
+                            translationY = panOffset.y
+                        }
                 ) {
                     // 1. Rendered High-Resolution PDF Page Image or iOS Spinner
                     if (currentBmp != null) {
@@ -697,11 +770,10 @@ private fun PdfPageListItem(
                     Canvas(
                         modifier = Modifier
                             .fillMaxSize()
-                            .pointerInput(page.words) {
+                            .pointerInput(page.words, zoomScale, panOffset) {
                                 detectTapGestures(
                                     onTap = { offset ->
-                                        val normX = offset.x / size.width
-                                        val normY = offset.y / size.height
+                                        val (normX, normY) = mapToNormCoords(offset, size.width.toFloat(), size.height.toFloat())
                                         val clickedWordIdx = page.words.indexOfFirst { w ->
                                             normX >= (w.normLeft - 0.015f) && normX <= (w.normRight + 0.015f) &&
                                                     normY >= (w.normTop - 0.015f) && normY <= (w.normBottom + 0.015f)
@@ -720,8 +792,7 @@ private fun PdfPageListItem(
                                         }
                                     },
                                     onDoubleTap = { offset ->
-                                        val normX = offset.x / size.width
-                                        val normY = offset.y / size.height
+                                        val (normX, normY) = mapToNormCoords(offset, size.width.toFloat(), size.height.toFloat())
                                         val clickedWordIdx = page.words.indexOfFirst { w ->
                                             normX >= (w.normLeft - 0.025f) && normX <= (w.normRight + 0.025f) &&
                                                     normY >= (w.normTop - 0.025f) && normY <= (w.normBottom + 0.025f)
@@ -754,15 +825,22 @@ private fun PdfPageListItem(
 
                                             activeSelectionText = selected
                                             onTextSelected(selected, page.text)
+                                        } else {
+                                            // Double-tap on empty area toggles zoom
+                                            if (zoomScale > 1.1f) {
+                                                zoomScale = 1f
+                                                panOffset = Offset.Zero
+                                            } else {
+                                                zoomScale = 2.2f
+                                            }
                                         }
                                     }
                                 )
                             }
-                            .pointerInput(page.words) {
+                            .pointerInput(page.words, zoomScale, panOffset) {
                                 detectDragGestures(
                                     onDragStart = { offset ->
-                                        val normX = offset.x / size.width
-                                        val normY = offset.y / size.height
+                                        val (normX, normY) = mapToNormCoords(offset, size.width.toFloat(), size.height.toFloat())
                                         val foundIdx = page.words.indexOfFirst { w ->
                                             normX >= (w.normLeft - 0.02f) && normX <= (w.normRight + 0.02f) &&
                                                     normY >= (w.normTop - 0.02f) && normY <= (w.normBottom + 0.02f)
@@ -775,8 +853,7 @@ private fun PdfPageListItem(
                                     onDrag = { change, _ ->
                                         val startIdx = dragStartIndex
                                         if (startIdx != null) {
-                                            val normX = change.position.x / size.width
-                                            val normY = change.position.y / size.height
+                                            val (normX, normY) = mapToNormCoords(change.position, size.width.toFloat(), size.height.toFloat())
                                             val currentIdx = page.words.indexOfFirst { w ->
                                                 normX >= (w.normLeft - 0.03f) && normX <= (w.normRight + 0.03f) &&
                                                         normY >= (w.normTop - 0.03f) && normY <= (w.normBottom + 0.03f)

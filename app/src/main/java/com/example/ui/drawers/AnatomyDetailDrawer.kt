@@ -1,6 +1,7 @@
 package com.example.ui.drawers
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -17,6 +18,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -53,6 +56,10 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -240,24 +247,26 @@ fun AnatomyDetailDrawer(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // 1. IMAGE GALLERY / DIAGRAM CARD
+                // 1. IMAGE GALLERY / MULTI-DIAGRAM VIEWER
                 if (structure.images.isNotEmpty()) {
-                    val primaryImage = structure.images.first()
+                    var selectedDiagramIndex by remember(structure.id) { mutableStateOf(0) }
+                    val currentImage = structure.images.getOrElse(selectedDiagramIndex) { structure.images.first() }
+
                     Card(
                         shape = RoundedCornerShape(16.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { onImageClick(primaryImage) }
+                            .clickable { onImageClick(currentImage) }
                     ) {
                         Column {
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(200.dp)
+                                    .height(210.dp)
                             ) {
                                 AnatomyImageViewer(
-                                    image = primaryImage,
+                                    image = currentImage,
                                     structureId = structure.id,
                                     modifier = Modifier.fillMaxSize(),
                                     showModeToggle = true
@@ -292,7 +301,7 @@ fun AnatomyDetailDrawer(
                                 }
                             }
 
-                            // Image Title & "See All Images" button
+                            // Image Title & Plate Counter
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -301,14 +310,14 @@ fun AnatomyDetailDrawer(
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Text(
-                                    text = primaryImage.title,
+                                    text = currentImage.title,
                                     style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
                                     color = MaterialTheme.colorScheme.onSurface,
                                     maxLines = 1,
                                     modifier = Modifier.weight(1f)
                                 )
                                 Text(
-                                    text = "See All (${structure.images.size})",
+                                    text = "Plate ${selectedDiagramIndex + 1}/${structure.images.size}",
                                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                                     color = GoogleBlue,
                                     modifier = Modifier
@@ -320,44 +329,78 @@ fun AnatomyDetailDrawer(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Google Images Quick Search Action Button
-                    val context = androidx.compose.ui.platform.LocalContext.current
-                    Surface(
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                try {
-                                    val searchUrl = com.example.data.anatomy.AnatomyImageSearchService.getGoogleImagesSearchUrl(structure.name)
-                                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(searchUrl)).apply {
-                                        flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                    // In-app Thumbnail Selector Row if multiple plates available
+                    if (structure.images.size > 1) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            itemsIndexed(structure.images) { idx, img ->
+                                val isSelected = idx == selectedDiagramIndex
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = if (isSelected) GoogleBlue.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant,
+                                    border = if (isSelected) BorderStroke(1.5.dp, GoogleBlue) else null,
+                                    modifier = Modifier
+                                        .size(width = 96.dp, height = 64.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .clickable { selectedDiagramIndex = idx }
+                                ) {
+                                    Box(modifier = Modifier.fillMaxSize()) {
+                                        coil.compose.AsyncImage(
+                                            model = img.imageUrl,
+                                            contentDescription = img.title,
+                                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
+                                        Surface(
+                                            color = Color.Black.copy(alpha = 0.6f),
+                                            shape = RoundedCornerShape(topStart = 4.dp),
+                                            modifier = Modifier.align(Alignment.BottomEnd)
+                                        ) {
+                                            Text(
+                                                text = "#${idx + 1}",
+                                                color = Color.White,
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                            )
+                                        }
                                     }
-                                    context.startActivity(intent)
-                                } catch (e: Exception) {
-                                    android.util.Log.e("AnatomyDetailDrawer", "Error opening Google Images", e)
                                 }
                             }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // In-app Full-Screen Lightbox Button
+                    Surface(
+                        color = GoogleBlue.copy(alpha = 0.08f),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, GoogleBlue.copy(alpha = 0.3f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSeeAllImages() }
                     ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Collections,
-                                contentDescription = "Search Google Images",
+                                contentDescription = "View Atlas Gallery",
                                 tint = GoogleBlue,
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Search Google Images for \"${structure.name}\"",
+                                text = "View All ${structure.images.size} Medical Plates & Diagrams",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color = GoogleBlue,
-                                maxLines = 1
+                                color = GoogleBlue
                             )
                         }
                     }
