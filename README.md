@@ -17,7 +17,7 @@ Users can open lecture notes or medical textbooks, tap on anatomical structures 
 - In-App Medical Diagrams: View high-resolution anatomical drawings, diagrams, and cross-sections directly inside the app without leaving to a browser.
 - AI Study Assistant: Chat with Gemini AI to ask medical questions, explain difficult concepts, or generate flashcards and quizzes.
 - Markdown Support: Clean formatting for AI responses, including bold text, bullet points, headers, and tables.
-- Document Library: Open built-in sample anatomy lectures or import your own PDF documents from device storage.
+- Document Selector: Direct file picker interface to select and open any anatomy PDF from storage or Google Drive.
 - Custom Bookmarks and Notes: Save important pages and highlight key terms for quick revision.
 
 ---

@@ -65,13 +65,19 @@ object PdfBoxHelper {
                 val cropBox = pdPage.cropBox ?: pdPage.mediaBox
                 val pageWidth = cropBox.width
                 val pageHeight = cropBox.height
+                val minBoxX = cropBox.lowerLeftX
+                val minBoxY = cropBox.lowerLeftY
 
-                stripper.setPageDimensions(pageWidth, pageHeight)
+                stripper.setPageDimensions(pageWidth, pageHeight, minBoxX, minBoxY)
                 stripper.startPage = pageIdx + 1
                 stripper.endPage = pageIdx + 1
                 
                 val text = stripper.getText(document)
-                val words = stripper.extractedWords
+                var words = stripper.extractedWords
+
+                if (words.isEmpty() && text.isNotBlank()) {
+                    words = createFallbackWordBoxes(text, pageIdx).toMutableList()
+                }
 
                 results.add(
                     ExtractedPageResult(
@@ -115,13 +121,19 @@ object PdfBoxHelper {
                 val cropBox = pdPage.cropBox ?: pdPage.mediaBox
                 val pageWidth = cropBox.width
                 val pageHeight = cropBox.height
+                val minBoxX = cropBox.lowerLeftX
+                val minBoxY = cropBox.lowerLeftY
 
-                stripper.setPageDimensions(pageWidth, pageHeight)
+                stripper.setPageDimensions(pageWidth, pageHeight, minBoxX, minBoxY)
                 stripper.startPage = pageIdx + 1
                 stripper.endPage = pageIdx + 1
 
                 val text = stripper.getText(document)
-                val words = stripper.extractedWords
+                var words = stripper.extractedWords
+
+                if (words.isEmpty() && text.isNotBlank()) {
+                    words = createFallbackWordBoxes(text, pageIdx).toMutableList()
+                }
 
                 results.add(
                     ExtractedPageResult(
@@ -193,6 +205,8 @@ private class WordPositionStripper(private val targetPageIndex: Int) : PDFTextSt
     val extractedWords = mutableListOf<ExtractedPdfWord>()
     private var pageWidth: Float = 595f
     private var pageHeight: Float = 842f
+    private var cropBoxX: Float = 0f
+    private var cropBoxY: Float = 0f
 
     private val currentWord = StringBuilder()
     private var minX = Float.MAX_VALUE
@@ -205,9 +219,11 @@ private class WordPositionStripper(private val targetPageIndex: Int) : PDFTextSt
         sortByPosition = true
     }
 
-    fun setPageDimensions(width: Float, height: Float) {
+    fun setPageDimensions(width: Float, height: Float, minX: Float = 0f, minY: Float = 0f) {
         this.pageWidth = if (width > 0) width else 595f
         this.pageHeight = if (height > 0) height else 842f
+        this.cropBoxX = minX
+        this.cropBoxY = minY
     }
 
     override fun writeString(text: String?, textPositions: MutableList<TextPosition>?) {
@@ -239,10 +255,10 @@ private class WordPositionStripper(private val targetPageIndex: Int) : PDFTextSt
         if (hasActiveWord && currentWord.isNotEmpty()) {
             val wordText = currentWord.toString().trim()
             if (wordText.isNotEmpty()) {
-                val normLeft = (minX / pageWidth).coerceIn(0f, 1f)
-                val normTop = (minY / pageHeight).coerceIn(0f, 1f)
-                val normRight = (maxX / pageWidth).coerceIn(0f, 1f)
-                val normBottom = (maxY / pageHeight).coerceIn(0f, 1f)
+                val normLeft = ((minX - cropBoxX) / pageWidth).coerceIn(0f, 1f)
+                val normTop = ((minY - cropBoxY) / pageHeight).coerceIn(0f, 1f)
+                val normRight = ((maxX - cropBoxX) / pageWidth).coerceIn(0f, 1f)
+                val normBottom = ((maxY - cropBoxY) / pageHeight).coerceIn(0f, 1f)
 
                 extractedWords.add(
                     ExtractedPdfWord(

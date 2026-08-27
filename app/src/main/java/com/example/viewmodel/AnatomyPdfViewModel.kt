@@ -21,15 +21,15 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class UiState(
-    val currentDocument: PdfDocumentItem = PdfDocumentManager.sampleLectures[0],
+    val currentDocument: PdfDocumentItem? = null,
     val currentPageIndex: Int = 0,
-    val totalPages: Int = 3,
+    val totalPages: Int = 0,
     val pages: List<PdfPageData> = emptyList(),
     val currentPageBitmap: Bitmap? = null,
     val currentPageText: String = "",
     val isLoadingDocument: Boolean = false,
     val isLoadingPage: Boolean = false,
-    val allLectures: List<PdfDocumentItem> = PdfDocumentManager.sampleLectures,
+    val allLectures: List<PdfDocumentItem> = emptyList(),
     
     // Search
     val isSearchActive: Boolean = false,
@@ -71,10 +71,8 @@ class AnatomyPdfViewModel(application: Application) : AndroidViewModel(applicati
 
     init {
         viewModelScope.launch {
-            PdfDocumentManager.ensurePresetPdfFiles(getApplication())
             val savedKey = GeminiService.getSavedCustomApiKey(getApplication())
             _uiState.update { it.copy(customApiKey = savedKey) }
-            loadDocument(PdfDocumentManager.sampleLectures[0])
             initializeGeminiWelcome()
         }
     }
@@ -82,7 +80,7 @@ class AnatomyPdfViewModel(application: Application) : AndroidViewModel(applicati
     private fun initializeGeminiWelcome() {
         val welcomeMsg = ChatMessage(
             isUser = false,
-            text = "👋 Welcome to your Medical Anatomy Assistant! I'm powered by Gemini.\n\nHighlight or tap any anatomical term in your PDF (like **Common Carotid Artery**, **Carotid Sheath**, **Circle of Willis**) to ask for mnemonics, clinical correlations, relations, or board exam reviews.\n\n💡 You can also configure your own Gemini API key anytime using the key icon.",
+            text = "Welcome to your Medical Anatomy Assistant! I'm powered by Gemini.\n\nOpen any anatomy PDF, textbook, or lecture notes to highlight or tap anatomical terms for instant mnemonics, clinical correlations, relations, or board exam reviews.\n\nYou can also configure your Gemini API key anytime using the key icon.",
             suggestedQuestions = listOf(
                 "High-yield mnemonics for Carotid Branches",
                 "Clinical relations inside the Carotid Sheath",
@@ -98,9 +96,13 @@ class AnatomyPdfViewModel(application: Application) : AndroidViewModel(applicati
             _uiState.update {
                 it.copy(
                     currentDocument = item,
+                    pages = emptyList(),
                     currentPageIndex = 0,
                     isLoadingDocument = true,
-                    isSelectionPopupVisible = false
+                    isSelectionPopupVisible = false,
+                    selectedText = "",
+                    currentPageBitmap = null,
+                    currentPageText = ""
                 )
             }
             val loadedPages = PdfDocumentManager.loadAllDocumentPages(getApplication(), item)
@@ -116,6 +118,22 @@ class AnatomyPdfViewModel(application: Application) : AndroidViewModel(applicati
                     isLoadingDocument = false
                 )
             }
+        }
+    }
+
+    fun closeCurrentDocument() {
+        PdfDocumentManager.closeCurrentRenderer()
+        _uiState.update {
+            it.copy(
+                currentDocument = null,
+                pages = emptyList(),
+                totalPages = 0,
+                currentPageIndex = 0,
+                currentPageBitmap = null,
+                currentPageText = "",
+                selectedText = "",
+                isSelectionPopupVisible = false
+            )
         }
     }
 
@@ -146,18 +164,19 @@ class AnatomyPdfViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun loadFromUri(uri: Uri, fileName: String? = null) {
+        val resolvedName = fileName ?: PdfDocumentManager.resolveDisplayName(getApplication(), uri)
         val docItem = PdfDocumentItem(
-            id = "custom_${System.currentTimeMillis()}",
-            title = fileName ?: "Imported Medical PDF",
-            subtitle = "Custom Document (${uri.lastPathSegment ?: "PDF"})",
+            id = "doc_${System.currentTimeMillis()}",
+            title = resolvedName,
+            subtitle = "Imported PDF",
             pageCount = 1,
             uri = uri,
             isPreset = false,
-            topicTag = "Imported PDF"
+            topicTag = "Medical PDF"
         )
         _uiState.update {
             it.copy(
-                allLectures = listOf(docItem) + it.allLectures.filter { l -> !l.id.startsWith("custom_") }
+                allLectures = listOf(docItem) + it.allLectures.filter { l -> l.id != docItem.id }
             )
         }
         loadDocument(docItem)
@@ -170,7 +189,7 @@ class AnatomyPdfViewModel(application: Application) : AndroidViewModel(applicati
             val pageCount = _uiState.value.totalPages
             val safeIndex = pageIndex.coerceIn(0, (pageCount - 1).coerceAtLeast(0))
             val bitmap = PdfDocumentManager.renderPage(safeIndex)
-            val docId = _uiState.value.currentDocument.id
+            val docId = _uiState.value.currentDocument?.id ?: "unknown"
             val text = PdfDocumentManager.getPageText(docId, safeIndex)
 
             _uiState.update {
@@ -316,7 +335,7 @@ class AnatomyPdfViewModel(application: Application) : AndroidViewModel(applicati
     fun openGeminiWithContext(promptPrefix: String? = null) {
         val context = _uiState.value.selectedText.ifBlank {
             _uiState.value.selectionContextSentence.ifBlank {
-                "Topic: ${_uiState.value.currentDocument.title}"
+                _uiState.value.currentDocument?.let { "Topic: ${it.title}" } ?: "Medical Anatomy"
             }
         }
         dismissSelectionPopup()
@@ -419,7 +438,7 @@ class AnatomyPdfViewModel(application: Application) : AndroidViewModel(applicati
             it.copy(
                 searchQuery = query,
                 searchMatchCount = matches,
-                isSearchActive = true // Keep search bar open even if user backspaces to empty!
+                isSearchActive = true
             )
         }
     }

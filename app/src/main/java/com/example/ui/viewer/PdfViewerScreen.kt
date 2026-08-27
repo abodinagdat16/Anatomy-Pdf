@@ -63,8 +63,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.ZoomIn
-import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -99,6 +98,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -107,11 +107,13 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -125,7 +127,6 @@ import com.example.ui.components.AllImagesDialog
 import com.example.ui.components.ContextualSelectionMenu
 import com.example.ui.components.GeminiApiKeyDialog
 import com.example.ui.components.ImageZoomDialog
-import com.example.ui.components.IosLoadingDialog
 import com.example.ui.components.IosLoadingHUD
 import com.example.ui.components.IosCupertinoActivityIndicator
 import com.example.ui.drawers.AnatomyDetailDrawer
@@ -170,7 +171,7 @@ fun PdfViewerScreen(
         }
     }
 
-    // Track visible page index as user scrolls continuous Google Drive style list
+    // Track visible page index as user scrolls continuous list
     LaunchedEffect(listState) {
         snapshotFlow { listState.firstVisibleItemIndex }
             .distinctUntilChanged()
@@ -184,41 +185,50 @@ fun PdfViewerScreen(
             snackbarHost = { SnackbarHost(snackbarHostState) },
             topBar = {
                 Column {
-                    // Google Workspace Styled Medical TopAppBar
                     TopAppBar(
                         title = {
-                            Column(
-                                modifier = Modifier
-                                    .clickable { showLectureMenu = true }
-                                    .padding(vertical = 4.dp)
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (state.currentDocument != null) {
+                                Column(
+                                    modifier = Modifier
+                                        .clickable { showLectureMenu = true }
+                                        .padding(vertical = 4.dp)
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = state.currentDocument!!.title,
+                                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Icon(
+                                            imageVector = Icons.Default.MoreVert,
+                                            contentDescription = "Options",
+                                            modifier = Modifier.size(16.dp),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
                                     Text(
-                                        text = state.currentDocument.title,
-                                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    Icon(
-                                        imageVector = Icons.Default.MoreVert,
-                                        contentDescription = "Switch Lecture",
-                                        modifier = Modifier.size(16.dp),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                        text = "${state.totalPages} Pages",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
-                                Text(
-                                    text = "${state.currentDocument.topicTag} • ${state.totalPages} Pages (Continuous List)",
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                            } else {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = "Anatomy PDF Reader",
+                                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
                             }
                         },
                         navigationIcon = {
-                            IconButton(onClick = { showLectureMenu = true }) {
+                            IconButton(onClick = { pdfPickerLauncher.launch(arrayOf("application/pdf")) }) {
                                 Icon(
                                     imageVector = Icons.Default.FolderOpen,
-                                    contentDescription = "Lectures",
+                                    contentDescription = "Select PDF",
                                     tint = GoogleBlue
                                 )
                             }
@@ -245,33 +255,44 @@ fun PdfViewerScreen(
                                 }
                             }
 
-                            // Search in PDF
-                            IconButton(onClick = {
-                                viewModel.toggleSearchBar()
-                            }) {
-                                Icon(
-                                    imageVector = Icons.Default.Search,
-                                    contentDescription = "Search text",
-                                    tint = if (state.isSearchActive) GoogleBlue else MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
+                            if (state.currentDocument != null) {
+                                // Search in PDF
+                                IconButton(onClick = {
+                                    viewModel.toggleSearchBar()
+                                }) {
+                                    Icon(
+                                        imageVector = Icons.Default.Search,
+                                        contentDescription = "Search text",
+                                        tint = if (state.isSearchActive) GoogleBlue else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
 
-                            // Open Left Drawer: Gemini AI Assistant
-                            IconButton(onClick = { viewModel.openLeftDrawer() }) {
-                                Icon(
-                                    imageVector = Icons.Default.AutoAwesome,
-                                    contentDescription = "Gemini AI",
-                                    tint = GeminiSparkle
-                                )
-                            }
+                                // Open Left Drawer: Gemini AI Assistant
+                                IconButton(onClick = { viewModel.openLeftDrawer() }) {
+                                    Icon(
+                                        imageVector = Icons.Default.AutoAwesome,
+                                        contentDescription = "Gemini AI",
+                                        tint = GeminiSparkle
+                                    )
+                                }
 
-                            // Open Right Drawer: Anatomy Quick Definition & Atlas
-                            IconButton(onClick = { viewModel.openRightDrawer() }) {
-                                Icon(
-                                    imageVector = Icons.Default.LocalHospital,
-                                    contentDescription = "Anatomy Quick Lookup",
-                                    tint = GoogleRed
-                                )
+                                // Open Right Drawer: Anatomy Quick Definition & Atlas
+                                IconButton(onClick = { viewModel.openRightDrawer() }) {
+                                    Icon(
+                                        imageVector = Icons.Default.LocalHospital,
+                                        contentDescription = "Anatomy Quick Lookup",
+                                        tint = GoogleRed
+                                    )
+                                }
+
+                                // Options Menu
+                                IconButton(onClick = { showLectureMenu = true }) {
+                                    Icon(
+                                        imageVector = Icons.Default.MoreVert,
+                                        contentDescription = "Menu",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             }
                         },
                         colors = TopAppBarDefaults.topAppBarColors(
@@ -281,7 +302,7 @@ fun PdfViewerScreen(
                     )
 
                     // Search Query Field if active
-                    AnimatedVisibility(visible = state.isSearchActive) {
+                    AnimatedVisibility(visible = state.isSearchActive && state.currentDocument != null) {
                         Surface(
                             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                             modifier = Modifier.fillMaxWidth()
@@ -358,47 +379,17 @@ fun PdfViewerScreen(
 
                     Divider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
 
-                    // Lecture Dropdown Menu
+                    // Document Menu
                     DropdownMenu(
                         expanded = showLectureMenu,
                         onDismissRequest = { showLectureMenu = false }
                     ) {
-                        Text(
-                            text = "Anatomy Lecture Library",
-                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                            color = GoogleBlue,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                        )
-                        state.allLectures.forEach { doc ->
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text(
-                                            text = doc.title,
-                                            fontWeight = if (doc.id == state.currentDocument.id) FontWeight.Bold else FontWeight.Normal
-                                        )
-                                        Text(
-                                            text = doc.subtitle,
-                                            fontSize = 11.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                },
-                                onClick = {
-                                    showLectureMenu = false
-                                    viewModel.loadDocument(doc)
-                                }
-                            )
-                        }
-
-                        Divider(modifier = Modifier.padding(vertical = 4.dp))
-
                         DropdownMenuItem(
                             text = {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Icon(Icons.Default.CloudUpload, contentDescription = null, tint = GoogleBlue)
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Open PDF from Device / Drive", color = GoogleBlue, fontWeight = FontWeight.SemiBold)
+                                    Text("Open PDF from Device", color = GoogleBlue, fontWeight = FontWeight.SemiBold)
                                 }
                             },
                             onClick = {
@@ -406,6 +397,24 @@ fun PdfViewerScreen(
                                 pdfPickerLauncher.launch(arrayOf("application/pdf"))
                             }
                         )
+
+                        if (state.currentDocument != null) {
+                            DropdownMenuItem(
+                                text = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.Close, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Close PDF", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Medium)
+                                    }
+                                },
+                                onClick = {
+                                    showLectureMenu = false
+                                    viewModel.closeCurrentDocument()
+                                }
+                            )
+                        }
+
+                        Divider(modifier = Modifier.padding(vertical = 4.dp))
 
                         DropdownMenuItem(
                             text = {
@@ -424,101 +433,244 @@ fun PdfViewerScreen(
                 }
             }
         ) { paddingValues ->
-            // MAIN CONTINUOUS PDF LIST VIEW (Like Google Drive PDF Viewer)
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues)
-                    .background(Color(0xFFE8EAED)),
-                contentAlignment = Alignment.TopCenter
-            ) {
-                if (state.isLoadingDocument) {
-                    IosLoadingHUD(
-                        message = "Loading PDF Pages...",
-                        modifier = Modifier.align(Alignment.Center)
-                    )
-                } else {
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(top = 16.dp, bottom = 96.dp, start = 12.dp, end = 12.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        itemsIndexed(
-                            items = if (state.pages.isNotEmpty()) state.pages else listOf(
-                                PdfPageData(
-                                    pageIndex = 0,
-                                    totalPages = 1,
-                                    bitmap = state.currentPageBitmap,
-                                    text = state.currentPageText
-                                )
-                            ),
-                            key = { index, page -> "${state.currentDocument.id}_page_$index" }
-                        ) { pageIndex, pageData ->
-                            PdfPageListItem(
-                                page = pageData,
-                                searchQuery = state.searchQuery,
-                                onAnatomyClick = { term -> viewModel.openAnatomyDefinition(term) },
-                                onAskGemini = { term ->
-                                    viewModel.openGeminiWithContext("Explain high-yield anatomical relations, course, and USMLE facts regarding: $term")
-                                },
-                                onTextSelected = { selected, contextText ->
-                                    viewModel.onTextSelected(selected, contextText)
-                                },
-                                modifier = Modifier.widthIn(max = 680.dp)
-                            )
-                        }
-                    }
-
-                    // Google Drive Style Floating Page Indicator Badge
-                    Surface(
-                        shape = RoundedCornerShape(20.dp),
-                        color = Color(0xDD202124),
-                        shadowElevation = 6.dp,
+            if (state.currentDocument == null) {
+                // LANDING VIEW: SELECT PDF BUTTON
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(paddingValues)
+                        .background(MaterialTheme.colorScheme.background),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Card(
+                        shape = RoundedCornerShape(24.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
                         modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .padding(bottom = 16.dp)
+                            .padding(24.dp)
+                            .widthIn(max = 480.dp)
+                            .fillMaxWidth()
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                        Column(
+                            modifier = Modifier.padding(28.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
                         ) {
+                            Surface(
+                                shape = CircleShape,
+                                color = GoogleBlueLight,
+                                modifier = Modifier.size(80.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.FolderOpen,
+                                        contentDescription = "Select PDF",
+                                        tint = GoogleBlue,
+                                        modifier = Modifier.size(44.dp)
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(20.dp))
+
                             Text(
-                                text = "Page ${state.currentPageIndex + 1} / ${state.totalPages}",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
+                                text = "Medical Anatomy PDF Reader",
+                                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurface,
+                                textAlign = TextAlign.Center
                             )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Text(
+                                text = "Select any anatomy PDF, textbook chapter, or lecture notes to read with interactive anatomical definitions, instant Gemini AI explanations, and diagrams.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center
+                            )
+
+                            Spacer(modifier = Modifier.height(24.dp))
+
+                            Button(
+                                onClick = {
+                                    pdfPickerLauncher.launch(arrayOf("application/pdf"))
+                                },
+                                shape = RoundedCornerShape(24.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = GoogleBlue),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(52.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CloudUpload,
+                                    contentDescription = null,
+                                    tint = Color.White
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(
+                                    text = "Select PDF File",
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                            }
+
+                            if (state.allLectures.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(24.dp))
+                                Divider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+                                Spacer(modifier = Modifier.height(16.dp))
+
+                                Text(
+                                    text = "Recent Documents",
+                                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.align(Alignment.Start)
+                                )
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    state.allLectures.take(4).forEach { doc ->
+                                        Surface(
+                                            shape = RoundedCornerShape(12.dp),
+                                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable { viewModel.loadDocument(doc) }
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.FolderOpen,
+                                                    contentDescription = null,
+                                                    tint = GoogleBlue,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(10.dp))
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(
+                                                        text = doc.title,
+                                                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                    Text(
+                                                        text = doc.subtitle,
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        maxLines = 1
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
-
-                // Floating Contextual Action Menu when text is selected / tapped
-                AnimatedVisibility(
-                    visible = state.isSelectionPopupVisible,
-                    enter = fadeIn(),
-                    exit = fadeOut(),
+            } else {
+                // MAIN CONTINUOUS PDF LIST VIEW
+                Box(
                     modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 54.dp)
-                        .zIndex(20f)
+                        .fillMaxSize()
+                        .padding(paddingValues)
+                        .background(Color(0xFFE8EAED)),
+                    contentAlignment = Alignment.TopCenter
                 ) {
-                    ContextualSelectionMenu(
-                        selectedText = state.selectedText,
-                        onQuickDefinition = { term -> viewModel.openAnatomyDefinition(term) },
-                        onAskGemini = { term ->
-                            viewModel.openGeminiWithContext("Explain high-yield anatomical relations, course, and USMLE facts regarding: $term")
-                        },
-                        onSearchInDoc = { term -> viewModel.setSearchQuery(term) },
-                        onTranslate = { text -> GoogleTranslateHelper.translateText(context, text) },
-                        onDismiss = { viewModel.dismissSelectionPopup() }
-                    )
+                    if (state.isLoadingDocument) {
+                        IosLoadingHUD(
+                            message = "Loading PDF Pages...",
+                            modifier = Modifier.align(Alignment.Center)
+                        )
+                    } else {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(top = 16.dp, bottom = 96.dp, start = 12.dp, end = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            itemsIndexed(
+                                items = if (state.pages.isNotEmpty()) state.pages else listOf(
+                                    PdfPageData(
+                                        pageIndex = 0,
+                                        totalPages = 1,
+                                        bitmap = state.currentPageBitmap,
+                                        text = state.currentPageText
+                                    )
+                                ),
+                                key = { index, _ -> "${state.currentDocument?.id ?: "doc"}_page_$index" }
+                            ) { _, pageData ->
+                                PdfPageListItem(
+                                    page = pageData,
+                                    searchQuery = state.searchQuery,
+                                    onAnatomyClick = { term -> viewModel.openAnatomyDefinition(term) },
+                                    onAskGemini = { term ->
+                                        viewModel.openGeminiWithContext("Explain high-yield anatomical relations, course, and USMLE facts regarding: $term")
+                                    },
+                                    onTextSelected = { selected, contextText ->
+                                        viewModel.onTextSelected(selected, contextText)
+                                    },
+                                    modifier = Modifier.widthIn(max = 680.dp)
+                                )
+                            }
+                        }
+
+                        // Floating Page Indicator Badge
+                        Surface(
+                            shape = RoundedCornerShape(20.dp),
+                            color = Color(0xDD202124),
+                            shadowElevation = 6.dp,
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .padding(bottom = 16.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Page ${state.currentPageIndex + 1} / ${state.totalPages}",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                            }
+                        }
+                    }
+
+                    // Floating Contextual Action Menu when text is selected / tapped
+                    AnimatedVisibility(
+                        visible = state.isSelectionPopupVisible,
+                        enter = fadeIn(),
+                        exit = fadeOut(),
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 54.dp)
+                            .zIndex(20f)
+                    ) {
+                        ContextualSelectionMenu(
+                            selectedText = state.selectedText,
+                            onQuickDefinition = { term -> viewModel.openAnatomyDefinition(term) },
+                            onAskGemini = { term ->
+                                viewModel.openGeminiWithContext("Explain high-yield anatomical relations, course, and USMLE facts regarding: $term")
+                            },
+                            onSearchInDoc = { term -> viewModel.setSearchQuery(term) },
+                            onTranslate = { text -> GoogleTranslateHelper.translateText(context, text) },
+                            onDismiss = { viewModel.dismissSelectionPopup() }
+                        )
+                    }
                 }
             }
         }
 
-        // LEFT DRAWER: GEMINI AI ASSISTANT (Gemini App Design)
+        // LEFT DRAWER: GEMINI AI ASSISTANT
         AnimatedVisibility(
             visible = state.isLeftDrawerOpen,
             enter = slideInHorizontally(initialOffsetX = { -it }),
@@ -826,7 +978,6 @@ private fun PdfPageListItem(
                                             activeSelectionText = selected
                                             onTextSelected(selected, page.text)
                                         } else {
-                                            // Double-tap on empty area toggles zoom
                                             if (zoomScale > 1.1f) {
                                                 zoomScale = 1f
                                                 panOffset = Offset.Zero
@@ -887,7 +1038,7 @@ private fun PdfPageListItem(
                         val canvasWidth = size.width
                         val canvasHeight = size.height
 
-                        // 1. Draw Search Matches directly on PDF Canvas (Bright yellow/amber highlight)
+                        // 1. Draw Search Matches directly on PDF Canvas
                         val trimmedQuery = searchQuery.trim()
                         if (trimmedQuery.isNotBlank()) {
                             page.words.forEach { word ->
@@ -899,14 +1050,12 @@ private fun PdfPageListItem(
                                     val width = (right - left).coerceAtLeast(10f)
                                     val height = (bottom - top).coerceAtLeast(12f)
 
-                                    // Bright translucent yellow highlight
                                     drawRoundRect(
                                         color = Color(0x99FFEB3B),
                                         topLeft = Offset(left - 2f, top - 1f),
                                         size = Size(width + 4f, height + 2f),
                                         cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx())
                                     )
-                                    // Deep amber crisp border
                                     drawRoundRect(
                                         color = Color(0xFFF57F17),
                                         topLeft = Offset(left - 2f, top - 1f),
@@ -1030,7 +1179,7 @@ private fun PdfPageListItem(
                                         }
                                     }
 
-                                    // Google Translate Button (Shown if Google Translate is available)
+                                    // Google Translate Button
                                     if (isTranslateAvailable) {
                                         Surface(
                                             color = Color(0xFF333537),
