@@ -60,15 +60,18 @@ object PdfBoxHelper {
             val numPages = document.numberOfPages
 
             for (pageIdx in 0 until numPages) {
-                val stripper = WordPositionStripper(pageIdx)
                 val pdPage = document.getPage(pageIdx)
+                val rotation = pdPage.rotation
                 val cropBox = pdPage.cropBox ?: pdPage.mediaBox
-                val pageWidth = cropBox.width
-                val pageHeight = cropBox.height
-                val minBoxX = cropBox.lowerLeftX
-                val minBoxY = cropBox.lowerLeftY
+                val rawWidth = cropBox.width
+                val rawHeight = cropBox.height
 
-                stripper.setPageDimensions(pageWidth, pageHeight, minBoxX, minBoxY)
+                val isRotated = rotation == 90 || rotation == 270
+                val renderWidth = if (isRotated) rawHeight else rawWidth
+                val renderHeight = if (isRotated) rawWidth else rawHeight
+
+                val stripper = WordPositionStripper(pageIdx)
+                stripper.setPageDimensions(renderWidth, renderHeight)
                 stripper.startPage = pageIdx + 1
                 stripper.endPage = pageIdx + 1
                 
@@ -116,15 +119,18 @@ object PdfBoxHelper {
             val numPages = document.numberOfPages
 
             for (pageIdx in 0 until numPages) {
-                val stripper = WordPositionStripper(pageIdx)
                 val pdPage = document.getPage(pageIdx)
+                val rotation = pdPage.rotation
                 val cropBox = pdPage.cropBox ?: pdPage.mediaBox
-                val pageWidth = cropBox.width
-                val pageHeight = cropBox.height
-                val minBoxX = cropBox.lowerLeftX
-                val minBoxY = cropBox.lowerLeftY
+                val rawWidth = cropBox.width
+                val rawHeight = cropBox.height
 
-                stripper.setPageDimensions(pageWidth, pageHeight, minBoxX, minBoxY)
+                val isRotated = rotation == 90 || rotation == 270
+                val renderWidth = if (isRotated) rawHeight else rawWidth
+                val renderHeight = if (isRotated) rawWidth else rawHeight
+
+                val stripper = WordPositionStripper(pageIdx)
+                stripper.setPageDimensions(renderWidth, renderHeight)
                 stripper.startPage = pageIdx + 1
                 stripper.endPage = pageIdx + 1
 

@@ -63,7 +63,7 @@ object PdfDocumentManager {
         val safeId = item.id.replace("[^a-zA-Z0-9_]".toRegex(), "_")
         val cachedFile = File(context.cacheDir, "doc_$safeId.pdf")
 
-        if (item.uri != null) {
+        if (item.uri != null && (!cachedFile.exists() || cachedFile.length() == 0L)) {
             try {
                 context.contentResolver.openInputStream(item.uri)?.use { input ->
                     FileOutputStream(cachedFile).use { output ->
@@ -185,6 +185,9 @@ object PdfDocumentManager {
         item: PdfDocumentItem,
         onProgress: ((current: Int, total: Int) -> Unit)? = null
     ): List<PdfPageData> = withContext(Dispatchers.IO) {
+        documentTextCache.clear()
+        pageBitmapCache.evictAll()
+
         val file = getLocalFileForDocument(context, item)
         val total = openPdf(context, item)
 

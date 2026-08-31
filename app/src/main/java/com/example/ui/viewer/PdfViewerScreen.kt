@@ -756,13 +756,13 @@ private fun PdfPageListItem(
     val context = LocalContext.current
     val isTranslateAvailable = remember(context) { GoogleTranslateHelper.isGoogleTranslateAvailable(context) }
     var pageBitmap by remember(page.pageIndex, page.bitmap) { mutableStateOf(page.bitmap) }
-    var selectedWordIndices by remember { mutableStateOf<Set<Int>>(emptySet()) }
-    var activeSelectionText by remember { mutableStateOf("") }
-    var menuAnchorNormX by remember { mutableStateOf(0.5f) }
-    var menuAnchorNormY by remember { mutableStateOf(0.5f) }
-    var dragStartIndex by remember { mutableStateOf<Int?>(null) }
-    var zoomScale by remember { mutableStateOf(1f) }
-    var panOffset by remember { mutableStateOf(Offset.Zero) }
+    var selectedWordIndices by remember(page.pageIndex, page.words) { mutableStateOf<Set<Int>>(emptySet()) }
+    var activeSelectionText by remember(page.pageIndex, page.words) { mutableStateOf("") }
+    var menuAnchorNormX by remember(page.pageIndex, page.words) { mutableStateOf(0.5f) }
+    var menuAnchorNormY by remember(page.pageIndex, page.words) { mutableStateOf(0.5f) }
+    var dragStartIndex by remember(page.pageIndex, page.words) { mutableStateOf<Int?>(null) }
+    var zoomScale by remember(page.pageIndex) { mutableStateOf(1f) }
+    var panOffset by remember(page.pageIndex) { mutableStateOf(Offset.Zero) }
 
     LaunchedEffect(page.pageIndex, page.bitmap) {
         if (pageBitmap == null) {
