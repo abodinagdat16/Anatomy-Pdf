@@ -10,6 +10,17 @@ Users can open lecture notes or medical textbooks, tap on anatomical structures 
 
 ---
 
+## Screenshots
+
+<p align="center">
+  <img src="assets/screenshots/screenshot1.jpg" width="200" />
+  <img src="assets/screenshots/screenshot2.jpg" width="200" />
+  <img src="assets/screenshots/screenshot3.jpg" width="200" />
+  <img src="assets/screenshots/screenshot4.jpg" width="200" />
+</p>
+
+---
+
 ## Features
 
 - PDF Reader: Smooth continuous scrolling, pinch to zoom up to 4.5x, and pan across document pages.
